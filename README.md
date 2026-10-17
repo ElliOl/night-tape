@@ -4,8 +4,6 @@ An endless procedural lo-fi / ambient generator that runs in the browser. It pla
 with its own title, key, tempo, jazz chord progression and arrangement. Everything is composed live from a seed and
 synthesized with Tone.js; nothing is sampled.
 
-Sister project of [Ghost Frequency](../ghost-frequency) (same engine architecture). The look and the vinyl / wow / crush
-ideas come from [LO-BOX mk1](../lofi-box).
 
 ## Run
 
