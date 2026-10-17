@@ -78,7 +78,7 @@ kbd {
   margin-bottom: 14px;
   background: #0b0d14;
 }
-.scene { display: block; width: 100%; height: clamp(180px, 30vw, 320px); }
+.scene { display: block; width: 100%; height: clamp(180px, 30vw, 320px); image-rendering: pixelated; }
 
 /* ---------------------------------------------------------------- panels */
 .panel {
@@ -229,18 +229,11 @@ kbd {
 .vu__seg--hot.is-on { background: var(--led-on); }
 
 /* ---------------------------------------------------------------- cassette */
-.cassette { width: 100%; max-width: 340px; height: auto; filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.55)); }
-.cassette__body { fill: #2f2924; stroke: #4a4038; stroke-width: 1.5; }
-.cassette__label { fill: #e8dfc8; }
-.cassette__stripe { fill: var(--rust); }
-.cassette__title { font-family: var(--cond); font-size: 13px; font-weight: 600; fill: #2a2018; letter-spacing: 0.5px; }
-.cassette__side { font-family: var(--cond); font-size: 14px; font-weight: 700; fill: var(--rust); }
-.cassette__window { fill: #120f0c; stroke: #4a4038; }
-.cassette__pack { fill: #3b2a1e; }
-.cassette__hub { fill: #d9cfb8; }
-.cassette__tooth { fill: #2a2018; }
-.cassette__bridge { fill: #241f1b; stroke: #4a4038; }
-.cassette__hole { fill: #120f0c; }
+.cassette { width: 100%; max-width: 360px; height: auto; filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.55)); }
+/* colours glide into the next song's scheme */
+.cassette rect, .cassette circle, .cassette path, .cassette text { transition: fill 1.6s ease; }
+.cassette__title { font-family: 'Caveat', 'Comic Sans MS', cursive; font-size: 23px; font-weight: 700; }
+.cassette__side { font-family: 'Caveat', 'Comic Sans MS', cursive; font-size: 22px; font-weight: 700; }
 .cassette__reel { animation: spin 2.4s linear infinite; animation-play-state: paused; }
 .cassette__reel.is-spinning { animation-play-state: running; }
 @keyframes spin { to { transform: rotate(-360deg); } }
