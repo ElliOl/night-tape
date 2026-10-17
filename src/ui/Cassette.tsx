@@ -5,8 +5,8 @@ import { cassetteColors, sketchSeed } from './cassettePalettes';
 /** Bars over which the tape visibly winds from the left reel to the right one. */
 const WIND_BARS = 64;
 const INK = '#1d1713';
-const TAPE = '#5e3d2a';
-const TAPE_LIGHT = '#f1e3c8';
+const TAPE = '#4a2f20';
+const TAPE_LIGHT = '#cbbd9f';
 
 /** Notched white reel (the hub turns while playing). */
 function Reel({ cx, cy, pack, spinning }: { cx: number; cy: number; pack: number; spinning: boolean }) {
@@ -15,12 +15,12 @@ function Reel({ cx, cy, pack, spinning }: { cx: number; cy: number; pack: number
       {/* wound tape around the hub */}
       <circle cx={cx} cy={cy} r={13 + pack * 4.5} style={{ fill: TAPE }} />
       <g className={`cassette__reel${spinning ? ' is-spinning' : ''}`} style={{ transformOrigin: `${cx}px ${cy}px` }}>
-        <circle cx={cx} cy={cy} r={12.5} fill="#fbf8f2" stroke={INK} strokeWidth={2.2} />
+        <circle cx={cx} cy={cy} r={12.5} fill="#d8ceb9" stroke={INK} strokeWidth={2.2} />
         <circle cx={cx} cy={cy} r={8.4} fill={INK} />
         {[0, 60, 120, 180, 240, 300].map((a) => (
-          <rect key={a} x={cx - 1.6} y={cy - 8.6} width={3.2} height={4.4} rx={0.6} fill="#fbf8f2" transform={`rotate(${a} ${cx} ${cy})`} />
+          <rect key={a} x={cx - 1.6} y={cy - 8.6} width={3.2} height={4.4} rx={0.6} fill="#d8ceb9" transform={`rotate(${a} ${cx} ${cy})`} />
         ))}
-        <circle cx={cx} cy={cy} r={4.3} fill="#fbf8f2" />
+        <circle cx={cx} cy={cy} r={4.3} fill="#d8ceb9" />
       </g>
     </g>
   );
@@ -29,7 +29,7 @@ function Reel({ cx, cy, pack, spinning }: { cx: number; cy: number; pack: number
 function Screw({ x, y }: { x: number; y: number }) {
   return (
     <g>
-      <circle cx={x} cy={y} r={5} fill="#f6f1e7" stroke={INK} strokeWidth={2} />
+      <circle cx={x} cy={y} r={5} fill="#cdc2ac" stroke={INK} strokeWidth={2} />
       <path d={`M${x - 2.6} ${y} H${x + 2.6} M${x} ${y - 2.6} V${y + 2.6}`} stroke={INK} strokeWidth={1.6} strokeLinecap="round" />
     </g>
   );
@@ -91,7 +91,7 @@ export function Cassette() {
             </>
           )}
           {[60, 120, 190, 245].map((x) => (
-            <path key={x} d={`M${x} 140 L${x + 48} 20`} stroke="#ffffff" strokeOpacity={0.22} strokeWidth={x % 120 === 0 ? 6 : 3} strokeLinecap="round" />
+            <path key={x} d={`M${x} 140 L${x + 48} 20`} stroke="#ffffff" strokeOpacity={0.1} strokeWidth={x % 120 === 0 ? 6 : 3} strokeLinecap="round" />
           ))}
         </g>
         <rect x={30} y={24} width={240} height={114} rx={8} fill="none" stroke={INK} strokeWidth={2.6} />
@@ -126,10 +126,10 @@ export function Cassette() {
         {/* bottom guide with holes */}
         <path d="M66 184 L82 148 H218 L234 184" style={{ fill: c.body }} stroke={INK} strokeWidth={3} strokeLinejoin="round" />
         <path d="M66 184 L82 148 H218 L234 184" fill="#000" fillOpacity={0.08} />
-        <circle cx={104} cy={170} r={5.5} fill="#fbf8f2" stroke={INK} strokeWidth={2} />
-        <rect x={121} y={163} width={8} height={8} rx={1.5} fill="#fbf8f2" stroke={INK} strokeWidth={1.8} />
-        <rect x={171} y={163} width={8} height={8} rx={1.5} fill="#fbf8f2" stroke={INK} strokeWidth={1.8} />
-        <circle cx={196} cy={170} r={5.5} fill="#fbf8f2" stroke={INK} strokeWidth={2} />
+        <circle cx={104} cy={170} r={5.5} fill="#d8ceb9" stroke={INK} strokeWidth={2} />
+        <rect x={121} y={163} width={8} height={8} rx={1.5} fill="#d8ceb9" stroke={INK} strokeWidth={1.8} />
+        <rect x={171} y={163} width={8} height={8} rx={1.5} fill="#d8ceb9" stroke={INK} strokeWidth={1.8} />
+        <circle cx={196} cy={170} r={5.5} fill="#d8ceb9" stroke={INK} strokeWidth={2} />
         <Screw x={150} y={160} />
 
         <Screw x={18} y={18} />

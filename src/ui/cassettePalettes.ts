@@ -72,7 +72,30 @@ export function cassetteColors(seed: number, songIndex: number, mood: MoodId): C
   const prev = songIndex > 0 ? pickFor(seed, songIndex - 1, mood, 0) : -1;
   let i = pickFor(seed, songIndex, mood, 0);
   for (let salt = 1; i === prev && salt < 8; salt++) i = pickFor(seed, songIndex, mood, salt);
-  return CASSETTE_PALETTES[i]!;
+  return shade(CASSETTE_PALETTES[i]!);
+}
+
+/** The app's background: every cassette colour is pulled toward it so the tape sits in the dark UI. */
+const APP_BG: [number, number, number] = [26, 22, 18];
+
+/** Mix a hex colour toward the app background by `t` (0 = unchanged, 1 = background). */
+export function darken(hex: string, t: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const out = c.map((v, i) => Math.round(v + (APP_BG[i]! - v) * t));
+  return `#${out.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** How far each part is pulled toward the background (the sticker stays light enough to read). */
+function shade(c: CassetteColors): CassetteColors {
+  return {
+    ...c,
+    body: darken(c.body, 0.42),
+    panel: darken(c.panel, 0.4),
+    stripe: c.stripe && darken(c.stripe, 0.38),
+    pinstripe: c.pinstripe && darken(c.pinstripe, 0.4),
+    sticker: darken(c.sticker, 0.2),
+  };
 }
 
 /** Wobble seed for the hand-drawn outline (changes a little per song, like a different drawing). */
