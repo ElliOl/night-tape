@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { currentExcursion, onExcursion, setCatAway, type Excursion } from '../services/wildcat';
+import { currentExcursion, onExcursion, setCatAway, setCatNapping, type CatPlace, type Excursion } from '../services/wildcat';
 import { CatSim, type CatPose } from './cat';
 
 /**
@@ -9,7 +9,7 @@ import { CatSim, type CatPose } from './cat';
  * rects every frame, so scrolling and resizing are fine.
  */
 
-type PointRef = { el: Element; fx: number; dy?: number };
+type PointRef = { el: Element; fx: number; fy?: number; dy?: number };
 type LegKind = 'hop' | 'walk';
 interface Leg {
   kind: LegKind;
@@ -20,7 +20,8 @@ interface Leg {
 
 interface Trip {
   ex: Excursion;
-  target: Element;
+  /** element swatted (jobs only) */
+  target: Element | null;
   out: Leg[];
   back: Leg[];
   startAt: number;
@@ -40,7 +41,7 @@ const rectOf = (el: Element): DOMRect => el.getBoundingClientRect();
 
 function resolve(p: PointRef): { x: number; y: number } {
   const r = rectOf(p.el);
-  return { x: r.left + p.fx * r.width, y: r.top + (p.dy ?? 0) };
+  return { x: r.left + p.fx * r.width, y: r.top + (p.fy ?? 0) * r.height + (p.dy ?? 0) };
 }
 
 function adjacent(a: DOMRect, b: DOMRect): boolean {
@@ -89,42 +90,64 @@ function leg(kind: LegKind, from: PointRef, to: PointRef): Leg {
   return { kind, from, to, ms };
 }
 
-function buildTrip(ex: Excursion): Trip | null {
-  const target = document.querySelector(ex.target);
+/** Where the cat sits at a place: in the scope (home) or on the pixel scene's windowsill. */
+function placePoint(place: CatPlace): { zone: Element; point: PointRef } | null {
+  if (place === 'window') {
+    const scene = document.querySelector('.scene');
+    const zone = document.querySelector('.main .hero');
+    // the sill row of the pixel scene sits at 90% of its height; the cat sleeps right of the mullion
+    return scene && zone ? { zone, point: { el: scene, fx: 0.66, fy: 0.9 } } : null;
+  }
   const scope = document.querySelector('.chaos__scope');
-  const home = document.querySelector('.panel--chaos');
-  const zones = Array.from(document.querySelectorAll('.main .panel'));
-  const targetZone = target?.closest('.panel');
-  if (!target || !scope || !home || !targetZone) return null;
+  const zone = document.querySelector('.panel--chaos');
+  return scope && zone ? { zone, point: { el: scope, fx: 0.4, fy: 1, dy: -6 } } : null;
+}
 
-  const path = route(zones, home, targetZone);
-  const out: Leg[] = [];
-  const scopeRect = rectOf(scope);
-  const start: PointRef = { el: scope, fx: 0.4, dy: scopeRect.height - 6 };
-  // jump out of the scope onto the top edge of the cat's own panel
-  let at: PointRef = { el: home, fx: 0.5 };
-  out.push(leg('hop', start, at));
-  for (let i = 1; i < path.length; i++) {
-    const next = path[i]!;
+/** Legs from a point in one zone to a point in another, along zone edges (never straight across the page). */
+function pathBetween(zones: Element[], fromZone: Element, from: PointRef, toZone: Element, to: PointRef): Leg[] {
+  const legs: Leg[] = [];
+  // up onto the edge of the zone we start in
+  let at: PointRef = { el: fromZone, fx: fxToward(fromZone, resolve(from).x) };
+  legs.push(leg('hop', from, at));
+  const zonesOnRoute = route(zones, fromZone, toZone);
+  for (let i = 1; i < zonesOnRoute.length; i++) {
+    const cur = zonesOnRoute[i - 1]!;
+    const next = zonesOnRoute[i]!;
     const nr = rectOf(next);
     // walk along the current edge toward the next zone, then hop across
-    const edge: PointRef = { el: path[i - 1]!, fx: fxToward(path[i - 1]!, nr.left + nr.width / 2) };
-    if (Math.abs(edge.fx - at.fx) > 0.02) out.push(leg('walk', at, edge));
+    const edge: PointRef = { el: cur, fx: fxToward(cur, nr.left + nr.width / 2) };
+    if (Math.abs(edge.fx - at.fx) > 0.02) legs.push(leg('walk', at, edge));
     const land: PointRef = { el: next, fx: fxToward(next, resolve(edge).x) };
-    out.push(leg('hop', edge, land));
+    legs.push(leg('hop', edge, land));
     at = land;
   }
-  // along the target zone's edge, then drop onto the control
-  const tr = rectOf(target);
-  const above: PointRef = { el: targetZone, fx: fxToward(targetZone, tr.left + tr.width / 2) };
-  if (Math.abs(above.fx - at.fx) > 0.02) out.push(leg('walk', at, above));
-  const onTarget: PointRef = { el: target, fx: 0.5 };
-  out.push(leg('hop', above, onTarget));
+  // along the destination zone's edge, then down onto the spot
+  const above: PointRef = { el: toZone, fx: fxToward(toZone, resolve(to).x) };
+  if (Math.abs(above.fx - at.fx) > 0.02) legs.push(leg('walk', at, above));
+  legs.push(leg('hop', above, to));
+  return legs;
+}
 
-  // the way home is the same route backwards
-  const back: Leg[] = [...out].reverse().map((l) => ({ ...l, from: l.to, to: l.from }));
-
+function buildTrip(ex: Excursion): Trip | null {
+  const zones = Array.from(document.querySelectorAll('.main .panel, .main .hero'));
+  const from = placePoint(ex.from);
+  const to = placePoint(ex.to);
+  if (!from || !to) return null;
   const now = performance.now();
+
+  if (ex.kind !== 'job') {
+    // a stroll to the window for a nap, or back home after one: no deadline, no swatting
+    const out = pathBetween(zones, from.zone, from.point, to.zone, to.point);
+    return { ex, target: null, out, back: [], startAt: now, outScale: 1, backStart: Infinity, swatted: { start: true, end: true } };
+  }
+
+  const target = ex.target ? document.querySelector(ex.target) : null;
+  const targetZone = target?.closest('.panel');
+  if (!target || !targetZone) return null;
+  const onTarget: PointRef = { el: target, fx: 0.5 };
+  const out = pathBetween(zones, from.zone, from.point, targetZone, onTarget);
+  const back = pathBetween(zones, targetZone, onTarget, to.zone, to.point);
+
   const travel = out.reduce((a, l) => a + l.ms, 0);
   const available = ex.landAt - now;
   const outScale = available >= travel ? 1 : Math.max(0.45, available / travel);
@@ -198,7 +221,17 @@ export function WildCatOverlay() {
     if (!canvas || !ctx) return;
     const cat = new CatSim(11);
     let trip: Trip | null = null;
+    /** the cat is asleep on the windowsill (drawn by the pixel scene, not here) */
+    let asleep = false;
     let raf = 0;
+
+    /** a trip ended at its destination */
+    const arrive = (tr: Trip): void => {
+      trip = null;
+      asleep = tr.ex.to === 'window';
+      setCatNapping(asleep);
+      setCatAway(asleep);
+    };
 
     const resize = () => {
       const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -212,6 +245,11 @@ export function WildCatOverlay() {
     const unsub = onExcursion((ex) => {
       if (ex) {
         trip = buildTrip(ex);
+        if (trip) {
+          // leaving the windowsill: the pixel scene stops drawing it
+          asleep = false;
+          setCatNapping(false);
+        }
       } else if (trip && !trip.fadeFrom) {
         trip.fadeFrom = performance.now();
       }
@@ -223,7 +261,7 @@ export function WildCatOverlay() {
       raf = requestAnimationFrame(draw);
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
       if (!trip || now < trip.startAt) {
-        setCatAway(false);
+        setCatAway(asleep);
         return;
       }
       const tr = trip;
@@ -233,6 +271,8 @@ export function WildCatOverlay() {
         alpha = 1 - (now - tr.fadeFrom) / 300;
         if (alpha <= 0) {
           trip = null;
+          asleep = false;
+          setCatNapping(false);
           setCatAway(false);
           return;
         }
@@ -242,8 +282,16 @@ export function WildCatOverlay() {
       ctx.globalAlpha = Math.max(0, alpha);
 
       let p: { x: number; y: number; pose: CatPose; facing: number; walk: number } | null = null;
-      if (now < tr.ex.landAt) {
-        p = along(tr.out, now - tr.startAt, tr.outScale);
+      if (!tr.target) {
+        // a stroll (to or from the window)
+        p = along(tr.out, now - tr.startAt, 1);
+        if (!p) {
+          arrive(tr);
+          ctx.restore();
+          return;
+        }
+      } else if (now < tr.ex.landAt) {
+        p = along(tr.out, now - tr.startAt, tr.outScale) ?? along(tr.out, Number.MAX_SAFE_INTEGER, 1);
       } else if (now < tr.backStart) {
         // on the control: swat on landing, sit and watch, swat again to undo
         if (!tr.swatted.start) {
@@ -264,8 +312,7 @@ export function WildCatOverlay() {
       } else {
         p = along(tr.back, now - tr.backStart, 1);
         if (!p) {
-          trip = null;
-          setCatAway(false);
+          arrive(tr);
           ctx.restore();
           return;
         }
@@ -278,8 +325,8 @@ export function WildCatOverlay() {
         ctx.restore();
         const sinceLand = now - tr.ex.landAt;
         const sinceEnd = now - tr.ex.holdUntil;
-        if (sinceLand >= 0 && sinceLand < 1500) bubble(ctx, p.x, p.y, tr.ex.label, Math.min(1, (1500 - sinceLand) / 300));
-        else if (tr.ex.endLabel && sinceEnd >= 0 && sinceEnd < 1200) bubble(ctx, p.x, p.y, tr.ex.endLabel, Math.min(1, (1200 - sinceEnd) / 300));
+        if (tr.ex.label && tr.target && sinceLand >= 0 && sinceLand < 1500) bubble(ctx, p.x, p.y, tr.ex.label, Math.min(1, (1500 - sinceLand) / 300));
+        else if (tr.ex.endLabel && tr.target && sinceEnd >= 0 && sinceEnd < 1200) bubble(ctx, p.x, p.y, tr.ex.endLabel, Math.min(1, (1200 - sinceEnd) / 300));
       }
       ctx.restore();
     };
@@ -289,6 +336,7 @@ export function WildCatOverlay() {
       unsub();
       window.removeEventListener('resize', resize);
       setCatAway(false);
+      setCatNapping(false);
     };
   }, []);
 

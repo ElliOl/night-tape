@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { MoodId } from '@shared/index';
 import { useStore } from '../services/store';
 import { getVisualizerSource } from './visualizerSource';
+import { isCatNapping } from '../services/wildcat';
 
 /** Size of one art pixel on screen (CSS px). */
 const PIXEL = 4;
@@ -108,6 +109,56 @@ function disc(g: CanvasRenderingContext2D, cx: number, cy: number, r: number): v
   for (let dy = -r; dy <= r; dy++) {
     const half = Math.floor(Math.sqrt(r * r - dy * dy) + 0.35);
     g.fillRect(cx - half, cy + dy, half * 2 + 1, 1);
+  }
+}
+
+/**
+ * The cat asleep on the windowsill, in pixels: a ginger loaf with its tail wrapped round, slow breathing and a
+ * pixel "z" drifting up. `cx` is the middle of the cat, `sill` the top row of the sill.
+ */
+function drawSleepingCat(g: CanvasRenderingContext2D, cx: number, sill: number, t: number, motion: boolean): void {
+  const BODY = '#c98a4b';
+  const DARK = '#9a5f2c';
+  const LIGHT = '#e8c9a0';
+  const px = (x: number, y: number, w = 1, h = 1): void => g.fillRect(cx + x, sill + y, w, h);
+  const breathe = motion && Math.sin(t * 2.2) > 0;
+  // tail curled round the front
+  g.fillStyle = DARK;
+  px(-7, -3);
+  px(-7, -2);
+  px(-6, -1, 3, 1);
+  // body loaf (rounded corners), rising a pixel when it breathes in
+  g.fillStyle = BODY;
+  px(-5, -4, 9, 3);
+  px(-4, -5, 7, 1);
+  if (breathe) px(-3, -6, 4, 1);
+  px(-4, -1, 8, 1);
+  // stripes
+  g.fillStyle = DARK;
+  px(-3, -5, 1, 2);
+  px(-1, -5, 1, 2);
+  px(1, -5, 1, 2);
+  // belly
+  g.fillStyle = LIGHT;
+  px(-2, -2, 4, 1);
+  // head tucked on the right, ears up, eye shut
+  g.fillStyle = BODY;
+  px(3, -6, 4, 4);
+  px(3, -7);
+  px(6, -7);
+  g.fillStyle = DARK;
+  px(4, -4, 2, 1);
+  g.fillStyle = '#e07a6a';
+  px(7, -3);
+  // a pixel z drifting up from its head
+  if (motion) {
+    const k = (t * 0.45) % 1;
+    const zx = 7 + Math.round(k * 6);
+    const zy = -10 - Math.round(k * 9);
+    g.fillStyle = `rgba(232,223,200,${(0.9 * (1 - k)).toFixed(2)})`;
+    px(zx, zy, 3, 1);
+    px(zx + 1, zy + 1);
+    px(zx, zy + 2, 3, 1);
   }
 }
 
@@ -349,6 +400,9 @@ export function Scene() {
       g.fillStyle = '#5c8f5d';
       g.fillRect(px + 2, sill - 9, 1, 1);
       g.fillRect(px + 4, sill - 11, 1, 1);
+
+      // ---- the cat, napping on the sill
+      if (isCatNapping()) drawSleepingCat(g, Math.round(W * 0.66), sill, t, !reduceMotion);
 
       // ---- vignette
       const vig = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
