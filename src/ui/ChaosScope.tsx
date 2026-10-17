@@ -1,12 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { ChaosLfo, speedFor } from '../services/chaos';
 import { useStore } from '../services/store';
+import { CatSim } from './cat';
 
 const TRAIL = 420;
 
 /**
  * Draws a Lorenz attractor trail (x vs z) running at the chaos LFO's rate: a picture of what is riding the knobs.
- * It is its own attractor instance (purely visual), brightness follows the amount.
+ * It is its own attractor instance (purely visual), brightness follows the amount. A cat hunts the red dot.
  */
 export function ChaosScope() {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -17,6 +18,7 @@ export function ChaosScope() {
     if (!canvas || !ctx) return;
     const lfo = new ChaosLfo(7);
     const trail: Array<[number, number]> = [];
+    const cat = new CatSim(7);
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     let raf = 0;
     let last = performance.now();
@@ -66,15 +68,30 @@ export function ChaosScope() {
         ctx.stroke();
       }
       const head = trail[trail.length - 1];
+      let dot: { x: number; y: number } | null = null;
       if (head) {
+        dot = { x: w / 2 + head[0] * w * 0.42, y: h / 2 - head[1] * h * 0.4 };
         ctx.fillStyle = `rgba(255,107,53,${alpha.toFixed(3)})`;
+        ctx.shadowColor = 'rgba(255,107,53,0.9)';
+        ctx.shadowBlur = 6;
         ctx.beginPath();
-        ctx.arc(w / 2 + head[0] * w * 0.42, h / 2 - head[1] * h * 0.4, 3, 0, Math.PI * 2);
+        ctx.arc(dot.x, dot.y, 3, 0, Math.PI * 2);
         ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+      // the cat only hunts a dot that is actually moving
+      cat.update(dt, running && amount > 0.01 ? dot : null, { w, h });
+      cat.draw(ctx, { w, h });
+      if (cat.caught > 0) {
+        ctx.fillStyle = 'rgba(240,184,64,0.85)';
+        ctx.font = '9px "Space Mono", monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(`caught ${cat.caught}`, w - 6, 12);
+        ctx.textAlign = 'left';
       }
       ctx.fillStyle = 'rgba(138,128,114,0.9)';
       ctx.font = '9px "Space Mono", monospace';
-      ctx.fillText(`${(speedFor(st.chaos.rate) * 10).toFixed(2)}x`, 6, h - 6);
+      ctx.fillText(`${(speedFor(st.chaos.rate) * 10).toFixed(2)}x`, 6, 12);
     };
     raf = requestAnimationFrame(draw);
     return () => {

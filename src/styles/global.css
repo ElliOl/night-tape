@@ -150,7 +150,7 @@ kbd {
 
 /* ---------------------------------------------------------------- chaos */
 .chaos { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 14px; align-items: center; }
-.chaos__scope { width: 100%; height: 118px; display: block; background: var(--groove); border: 1px solid #0a0908; border-radius: 6px; }
+.chaos__scope { width: 100%; height: 150px; display: block; background: var(--groove); border: 1px solid #0a0908; border-radius: 6px; }
 .chaos__controls { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
 .chaos__targets { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip {
