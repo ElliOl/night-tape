@@ -24,7 +24,7 @@ Keys: `Space` play / pause, `N` new tape (new random seed).
 |---------------|----------|
 | Station       | Late Night Study, Rainy Window, Sunday Morning, Ambient Drift. Each has its own pool of instruments, kits, groove families, voicings and progressions; every song draws a new combination. A new station takes over once the current song wraps up (within a few bars). |
 | Groove (live) | Energy, Jazz (triads .. 13th chords, melody density), Drift (bar-to-bar variation), Swing (straight .. hard shuffle), Tempo (auto per song or 40-140 BPM). Changes re-compose the already-scheduled music, so they are heard within about half a beat. |
-| Master filter | LP / BP / HP, Cutoff (40 Hz - 20 kHz), Resonance |
+| Filter        | LP / BP / HP, Cutoff (40 Hz - 20 kHz), Resonance |
 | Tape          | Warmth (tape low-pass), Wow (wow & flutter), Crush (bit-crush blend), Space (dry .. cathedral) |
 | Ambience      | Vinyl crackle, Rain, Hiss |
 | Cat LFO       | Amount, Rate, and which groups it may move (Filter, Tape, Groove). A Lorenz attractor drifts the knobs smoothly and never repeats; it leans darker in breaks and brighter in solos. Orange dots on the knobs show where it is pushing, and a cat chases the dot. |

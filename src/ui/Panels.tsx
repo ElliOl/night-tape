@@ -147,7 +147,7 @@ export function FilterPanel() {
   const onCutoff = useCallback((v: number) => setTape({ cutoff: v }), [setTape]);
   return (
     <section className="panel panel--filter" aria-labelledby="filter-h">
-      <h2 className="panel__title" id="filter-h">Master filter</h2>
+      <h2 className="panel__title" id="filter-h">Filter</h2>
       <div className="segmented" role="radiogroup" aria-labelledby="filter-h">
         {FILTER_MODES.map((m) => (
           <button
