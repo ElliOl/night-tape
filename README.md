@@ -27,7 +27,7 @@ Keys: `Space` play / pause, `N` new tape (new random seed).
 | Master filter | LP / BP / HP, Cutoff (40 Hz - 20 kHz), Resonance |
 | Tape          | Warmth (tape low-pass), Wow (wow & flutter), Crush (bit-crush blend), Space (dry .. cathedral) |
 | Ambience      | Vinyl crackle, Rain, Hiss |
-| Chaos LFO     | Amount, Rate, and which groups it may move (Filter, Tape, Groove). A Lorenz attractor drifts the knobs smoothly and never repeats; it leans darker in breaks and brighter in solos. Orange dots on the knobs show where it is pushing. |
+| Cat LFO       | Amount, Rate, and which groups it may move (Filter, Tape, Groove). A Lorenz attractor drifts the knobs smoothly and never repeats; it leans darker in breaks and brighter in solos. Orange dots on the knobs show where it is pushing, and a cat chases the dot. |
 | Mixer         | Keys, Pad, Bass, Lead, Drums, Room (ambience) + master, with mutes |
 | Cassette      | Seed (reproducible tapes), tracklist with each song's sound, 32-bar WAV export |
 
