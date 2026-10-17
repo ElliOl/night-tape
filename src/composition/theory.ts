@@ -271,6 +271,46 @@ export function voiceChord(c: Pick<Chord, 'rootPc' | 'quality'>, prev: readonly 
   return best;
 }
 
+// ---------------------------------------------------------------------------------------------
+// chord-scale fit
+// ---------------------------------------------------------------------------------------------
+
+/** Absolute pitch classes of the key's seven-note scale. */
+export function keyPcs(key: KeySpec): number[] {
+  return SCALES[key.scale].map((d) => mod12(key.tonic + d));
+}
+
+/** Pitch classes (relative to the tonic) a progression uses: every chord tone and tension. */
+export function progressionPcs(steps: ReadonlyArray<readonly [number, ChordQuality]>): number[] {
+  const out = new Set<number>();
+  for (const [off, q] of steps) for (const iv of QUALITY_INTERVALS[q]) out.add(mod12(off + iv));
+  return [...out];
+}
+
+/** How many of the progression's pitch classes (relative to the tonic) fall outside `scale`. */
+export function scaleConflicts(scale: ScaleName, relPcs: readonly number[]): number {
+  return relPcs.filter((pc) => !SCALES[scale].includes(pc)).length;
+}
+
+/**
+ * Melody pitch classes that sit well over `chord` in `key`: the melody scale minus avoid notes (a half step above a
+ * chord tone, like the 4th over a major chord) and minus scale notes that rub against the chord's own out-of-key
+ * tones; those out-of-key chord tones (the b6 of a borrowed iv, the leading tone of a V7b9) join the set instead.
+ */
+export function melodyPcsOver(key: KeySpec, chord: Pick<Chord, 'rootPc' | 'quality'>): number[] {
+  const tones = chordPcs(chord);
+  const inKey = keyPcs(key);
+  // only the chord's body (root, 3rd, 5th, 7th) is borrowed into the line, not its tensions
+  const body = QUALITY_INTERVALS[chord.quality].filter((iv) => iv < 12).map((iv) => mod12(chord.rootPc + iv));
+  const chromatic = body.filter((pc) => !inKey.includes(pc));
+  const semitone = (a: number, b: number): boolean => mod12(a - b) === 1 || mod12(b - a) === 1;
+  const out = melodyScale(key)
+    .map((d) => mod12(key.tonic + d))
+    .filter((pc) => tones.includes(pc) || (!tones.some((t) => mod12(pc - t) === 1) && !chromatic.some((c) => semitone(pc, c))));
+  for (const c of chromatic) if (!out.includes(c)) out.push(c);
+  return out;
+}
+
 /** Nearest MIDI note with a pitch class in `pcs` (ties resolve downward). */
 export function nearestInSet(midi: number, pcs: readonly number[]): number {
   for (let d = 0; d < 12; d++) {

@@ -9,7 +9,8 @@ import { rampParam, type Instrument, type InstrumentParam } from './instrument';
  *  - FM: sine carrier + modulator whose index decays quickly (Rhodes, Wurlitzer, vibes, music box)
  *  - subtractive: oscillator -> resonant low-pass with its own envelope (felt piano, organ, upright, Juno, clav, guitar)
  * -> low-pass (section automation) -> stereo tremolo -> chorus.
- * Each song also gets a "colour" (0..1) that shifts brightness, tremolo and chorus, so a patch never sounds identical twice.
+ * Each song also gets a "colour" (0..1) that shifts brightness, tremolo and chorus, so a patch never sounds identical twice,
+ * and a "ring" (0..1) that stretches decay and release so some songs' chords bloom and hang in the air.
  */
 export class KeysInstrument implements Instrument {
   readonly layer = 'keys' as const;
@@ -26,6 +27,7 @@ export class KeysInstrument implements Instrument {
   private mood: MoodId;
   private patch: KeysPatchId = 'rhodes';
   private color = 0.5;
+  private ring = 0;
   private subWave = '';
 
   constructor(mood: MoodId) {
@@ -35,9 +37,10 @@ export class KeysInstrument implements Instrument {
     this.filterPos = p.filterDefault;
     this.output = new Tone.Gain(dbToGain(p.levelDb));
     this.fm = new Tone.PolySynth(Tone.FMSynth, { ...this.fmOptions(p), volume: -2 });
-    this.fm.maxPolyphony = 32;
+    // ringing songs keep many voices in their release tails
+    this.fm.maxPolyphony = 48;
     this.sub = new Tone.PolySynth(Tone.MonoSynth, { ...this.subOptions(p), volume: -6 });
-    this.sub.maxPolyphony = 32;
+    this.sub.maxPolyphony = 48;
     this.subWave = p.subWave;
     this.filter = new Tone.Filter({ type: 'lowpass', frequency: this.cutoff(p), Q: 0.4, rolloff: -12 });
     this.tremolo = new Tone.Tremolo({ frequency: p.tremoloRate, depth: p.tremoloDepth, spread: 140 }).start();
@@ -94,16 +97,27 @@ export class KeysInstrument implements Instrument {
   }
 
   private resolve(): KeysPreset {
-    return withPatch(getPreset(this.mood).keys, KEYS_PATCHES[this.patch]);
+    const p = withPatch(getPreset(this.mood).keys, KEYS_PATCHES[this.patch]);
+    const r = this.ring;
+    if (r <= 0) return p;
+    return {
+      ...p,
+      decay: p.decay * (1 + r * 1.5),
+      sustain: Math.min(0.6, p.sustain + r * 0.12),
+      release: p.release * (1 + r * 2),
+      envSustain: Math.min(1, p.envSustain + r * 0.1),
+    };
   }
 
-  /** `color` (0..1) is the song's keys colour. */
-  setPatch(patch: string, rampSeconds: number, color = 0.5, at?: number): void {
+  /** `color` (0..1) is the song's keys colour, `ring` (0..1) how long its chords ring out. */
+  setPatch(patch: string, rampSeconds: number, color = 0.5, at?: number, ring = 0): void {
     if (!(patch in KEYS_PATCHES)) return;
     const c = Number.isFinite(color) ? clamp01(color) : 0.5;
-    if (patch === this.patch && c === this.color) return;
+    const r = Number.isFinite(ring) ? clamp01(ring) : 0;
+    if (patch === this.patch && c === this.color && r === this.ring) return;
     this.patch = patch as KeysPatchId;
     this.color = c;
+    this.ring = r;
     this.setPreset(this.mood, rampSeconds, false, at);
   }
 

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { chordLabel, chordPcs, colourQuality, keyLabel, mod12, nearestInSet, voiceChord, voiceLeadingCost } from './theory';
+import {
+  chordLabel, chordPcs, colourQuality, keyLabel, melodyPcsOver, mod12, nearestInSet, progressionPcs, scaleConflicts, SCALES,
+  voiceChord, voiceLeadingCost,
+} from './theory';
 
 describe('theory', () => {
   it('labels chords and keys with flat spellings', () => {
@@ -66,5 +69,41 @@ describe('theory', () => {
   it('finds the nearest pitch in a set', () => {
     expect(nearestInSet(61, [0, 4, 7])).toBe(60);
     expect(nearestInSet(66, [7])).toBe(67);
+  });
+
+  it('defines the modes with the right intervals', () => {
+    expect(SCALES.ionian).toEqual([0, 2, 4, 5, 7, 9, 11]);
+    expect(SCALES.dorian).toEqual([0, 2, 3, 5, 7, 9, 10]);
+    expect(SCALES.aeolian).toEqual([0, 2, 3, 5, 7, 8, 10]);
+    expect(SCALES.lydian).toEqual([0, 2, 4, 6, 7, 9, 11]);
+    expect(SCALES.mixolydian).toEqual([0, 2, 4, 5, 7, 9, 10]);
+  });
+
+  it('scores how well a mode fits a progression', () => {
+    // i - IV13 is dorian (natural 6), i - bVI is aeolian (flat 6)
+    const iIV = progressionPcs([[0, 'm9'], [5, '13']]);
+    expect(scaleConflicts('dorian', iIV)).toBeLessThan(scaleConflicts('aeolian', iIV));
+    const ibVI = progressionPcs([[0, 'm9'], [8, 'maj7']]);
+    expect(scaleConflicts('aeolian', ibVI)).toBeLessThan(scaleConflicts('dorian', ibVI));
+    // a maj7 tonic is not mixolydian
+    const Imaj7 = progressionPcs([[0, 'maj7'], [2, 'm9']]);
+    expect(scaleConflicts('ionian', Imaj7)).toBeLessThan(scaleConflicts('mixolydian', Imaj7));
+  });
+
+  it('keeps melody notes off avoid notes and follows borrowed chords', () => {
+    const cMajor = { tonic: 0, scale: 'ionian' } as const;
+    // borrowed iv (Fm7): Ab replaces A
+    const overFm = melodyPcsOver(cMajor, { rootPc: 5, quality: 'm7' });
+    expect(overFm).toContain(8);
+    expect(overFm).not.toContain(9);
+    // G7: C (a half step above B) is the avoid note
+    expect(melodyPcsOver(cMajor, { rootPc: 7, quality: '7' })).not.toContain(0);
+    // a plain diatonic chord keeps the whole melody scale
+    expect(melodyPcsOver(cMajor, { rootPc: 0, quality: 'maj7' }).sort((a, b) => a - b)).toEqual([0, 2, 4, 7, 9, 11]);
+    // C minor, G7b9: the leading tone B joins, Bb and C step aside
+    const overV = melodyPcsOver({ tonic: 0, scale: 'aeolian' }, { rootPc: 7, quality: '7b9' });
+    expect(overV).toContain(11);
+    expect(overV).not.toContain(10);
+    expect(overV).not.toContain(0);
   });
 });

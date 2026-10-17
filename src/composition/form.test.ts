@@ -3,7 +3,8 @@ import { DEFAULT_PARAMS, MOOD_IDS, type GenerationParams } from '@shared/index';
 import { Form, songEnd, songTitle, templateIsMinor, varyTemplate, type SongPlan } from './form';
 import { MOODS } from './moods';
 import { stream } from './rng';
-import { isMinorScale } from './theory';
+import { isMinorScale, progressionPcs, scaleConflicts } from './theory';
+import { LocalEngine } from '../engine/localEngine';
 
 function songs(params: GenerationParams, count: number): SongPlan[] {
   const form = new Form(params.seed);
@@ -76,10 +77,77 @@ describe('song planning', () => {
   it('picks a key that agrees with the progression', () => {
     for (const mood of MOOD_IDS) {
       for (const s of songs({ ...DEFAULT_PARAMS, mood, seed: 77 }, 30)) {
-        const fits = MOODS[mood].scales.some((sc) => isMinorScale(sc) === templateIsMinor(s.baseTemplate));
-        if (fits) expect(isMinorScale(s.key.scale)).toBe(templateIsMinor(s.baseTemplate));
+        const minor = templateIsMinor(s.baseTemplate);
+        const candidates = MOODS[mood].scales.filter((sc) => isMinorScale(sc) === minor);
+        if (!candidates.length) continue;
+        expect(isMinorScale(s.key.scale)).toBe(minor);
+        // and the mode is the one that fits the progression's notes best
+        const rel = progressionPcs(s.baseTemplate);
+        const tonic = progressionPcs(s.baseTemplate.filter(([off]) => off === 0));
+        const cost = (sc: typeof s.key.scale) => scaleConflicts(sc, rel) + 2 * scaleConflicts(sc, tonic);
+        const best = Math.min(...candidates.map(cost));
+        expect(cost(s.key.scale)).toBe(best);
+        // a major-seventh tonic is never called mixolydian
+        if (s.baseTemplate.some(([off, q]) => off === 0 && q.startsWith('maj'))) expect(s.key.scale).not.toBe('mixolydian');
       }
     }
+  });
+
+  it('varies how chords are struck and how long they ring', () => {
+    const list = songs({ ...DEFAULT_PARAMS, mood: 'rainy', seed: 4 }, 60);
+    expect(new Set(list.map((s) => s.style.touch)).size).toBe(3);
+    expect(list.some((s) => s.style.ring > 0.5)).toBe(true);
+    expect(list.some((s) => s.style.ring < 0.3)).toBe(true);
+    for (const s of list) expect(s.style.palette.keysRing).toBe(s.style.ring);
+  });
+});
+
+describe('keys touch and ring in the rendered notes', () => {
+  // chord clusters: keys notes that start within 0.2 beats of each other
+  function clusters(seed: number, bars: number) {
+    const params = { ...DEFAULT_PARAMS, seed, mood: 'study' as const };
+    const e = new LocalEngine();
+    e.init(seed, params);
+    const notes = Array.from({ length: bars }, (_, b) => e.renderBars(b, 1, params).events)
+      .flat()
+      .filter((ev) => ev.kind === 'note' && ev.layer === 'keys') as Array<{ beat: number; durBeats: number }>;
+    const songOf = (beat: number) => e.songs.find((s) => beat >= s.startBar * 4 && beat < (s.startBar + s.lengthBars) * 4)!;
+    const out: Array<{ song: SongPlan; spread: number; dur: number }> = [];
+    let cur: typeof notes = [];
+    const flush = () => {
+      if (cur.length >= 3) {
+        const song = songOf(cur[0]!.beat);
+        out.push({ song, spread: cur[cur.length - 1]!.beat - cur[0]!.beat, dur: cur.reduce((a, n) => a + n.durBeats, 0) / cur.length });
+      }
+      cur = [];
+    };
+    for (const n of notes) {
+      if (cur.length && n.beat - cur[0]!.beat > 0.2) flush();
+      cur.push(n);
+    }
+    flush();
+    return out.filter((c) => c.song && c.song.style.palette.keys !== 'guitar' && c.song.sections.length > 0);
+  }
+
+  it('strikes block chords together and rolled chords spread out', () => {
+    const all = [1, 2, 3, 4, 5, 6].flatMap((seed) => clusters(seed, 160));
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
+    const block = all.filter((c) => c.song.style.touch === 'block').map((c) => c.spread);
+    const rolled = all.filter((c) => c.song.style.touch === 'rolled').map((c) => c.spread);
+    expect(block.length).toBeGreaterThan(10);
+    expect(rolled.length).toBeGreaterThan(10);
+    expect(mean(block)).toBeLessThan(0.05);
+    expect(mean(rolled)).toBeGreaterThan(mean(block) * 3);
+  });
+
+  it('holds chords longer on ringing songs', () => {
+    const all = [1, 2, 3, 4, 5, 6].flatMap((seed) => clusters(seed, 160));
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
+    const wet = all.filter((c) => c.song.style.ring > 0.6).map((c) => c.dur);
+    const dry = all.filter((c) => c.song.style.ring < 0.2).map((c) => c.dur);
+    expect(wet.length).toBeGreaterThan(10);
+    expect(dry.length).toBeGreaterThan(10);
+    expect(mean(wet)).toBeGreaterThan(mean(dry) * 1.2);
   });
 });
 

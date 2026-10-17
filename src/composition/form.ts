@@ -11,7 +11,8 @@ import {
 } from './moods';
 import { chance, int, pick, shuffle, stream, weightedPick, type Rng } from './rng';
 import {
-  bassRoot, colourQuality, colourSteps, isMinorScale, mod12, voiceChord, type Chord, type ChordQuality, type VoicingStyle,
+  bassRoot, colourQuality, colourSteps, isMinorScale, mod12, progressionPcs, scaleConflicts, voiceChord, type Chord, type ChordQuality,
+  type VoicingStyle,
 } from './theory';
 
 export type SectionName =
@@ -64,7 +65,16 @@ export interface SongStyle {
   melodyAmount: number;
   /** arrangement template the sections were built from (see ARRANGEMENTS) */
   arrangement: Arrangement;
+  /** how chords are struck: all notes at once, lightly staggered or clearly rolled (guitar always strums) */
+  touch: KeysTouch;
+  /** 0..1: how long chords ring (held through the gaps, pedal-like, longer keys decay); also palette.keysRing */
+  ring: number;
 }
+
+export type KeysTouch = 'block' | 'light' | 'rolled';
+
+/** Chance per station that a song lets its chords ring out. */
+const RING_CHANCE: Record<MoodId, number> = { study: 0.3, rainy: 0.5, sunday: 0.25, drift: 0.7 };
 
 export type Arrangement = 'classic' | 'beattape' | 'aaba' | 'sketch' | 'jam' | 'coldopen' | 'ambient';
 
@@ -203,6 +213,10 @@ export function pickStyle(rng: Rng, mood: MoodConfig, prev?: SongStyle): SongSty
   const [sLo, sHi] = FAMILY_SWING[style.drumFamily];
   style.swingOffset = sLo + rng.next() * (sHi - sLo);
   style.melodyAmount = weightedPick(rng, [[0.55, 1], [1, 3], [1.35, 1]] as const);
+  style.ring = chance(rng, RING_CHANCE[mood.id]) ? 0.55 + rng.next() * 0.45 : rng.next() * 0.3;
+  // ringing songs lean on block chords (pedalled stabs), dry songs on a light stagger
+  style.touch = weightedPick(rng, (style.ring > 0.5 ? [['block', 4], ['light', 2], ['rolled', 2]] : [['block', 3], ['light', 4], ['rolled', 2]]) as Weights<KeysTouch>);
+  style.palette.keysRing = style.ring;
   return style;
 }
 
@@ -226,6 +240,7 @@ function pickStyleBase(rng: Rng, mood: MoodConfig, prev?: SongStyle): SongStyle 
       // every song retunes its kit, so even the same kit never sounds quite the same
       drumTune: int(rng, -4, 4),
       keysColor: rng.next(),
+      keysRing: 0,
     },
     voicing: wpick(rng, mood.voicings),
     comps,
@@ -242,6 +257,8 @@ function pickStyleBase(rng: Rng, mood: MoodConfig, prev?: SongStyle): SongStyle 
     swingOffset: 0,
     melodyAmount: 1,
     arrangement: 'classic',
+    touch: 'light',
+    ring: 0,
   };
 }
 
@@ -271,14 +288,20 @@ export function templateIsMinor(template: ProgTemplate): boolean {
 }
 
 function pickScale(rng: Rng, mood: MoodConfig, template: ProgTemplate): ScaleName {
-  // the key has to agree with the progression's tonic chord (major vs minor)
+  // the key has to agree with the progression's tonic chord (major vs minor), and then with its notes: a IV13 in
+  // minor makes it dorian, a bVI aeolian, a maj7 tonic rules out mixolydian, a #11 makes it lydian
   const tonicMinor = templateIsMinor(template);
-  // a major-seventh tonic rules out mixolydian (its b7 would rub against the chord in the melody)
-  const majSevenTonic = template.some(([off, q]) => off === 0 && (q === 'maj7' || q === 'maj9' || q === 'maj13' || q === 'maj9#11'));
-  const fitting = mood.scales.filter((s) => isMinorScale(s) === tonicMinor && !(majSevenTonic && s === 'mixolydian'));
-  if (fitting.length) return pick(rng, fitting);
-  return tonicMinor ? 'dorian' : 'ionian';
+  const rel = progressionPcs(template);
+  // the tonic chord defines the key far more than a passing chord does: its clashes count triple
+  const tonicRel = progressionPcs(template.filter(([off]) => off === 0));
+  const cost = (s: ScaleName): number => scaleConflicts(s, rel) + 2 * scaleConflicts(s, tonicRel);
+  let fitting = mood.scales.filter((s) => isMinorScale(s) === tonicMinor);
+  if (!fitting.length) fitting = ALL_SCALES.filter((s) => isMinorScale(s) === tonicMinor);
+  const best = Math.min(...fitting.map(cost));
+  return pick(rng, fitting.filter((s) => cost(s) === best));
 }
+
+const ALL_SCALES: readonly ScaleName[] = ['ionian', 'dorian', 'aeolian', 'lydian', 'mixolydian'];
 
 const DOMINANT = new Set<ChordQuality>(['7', '9', '13', '7b9', '7#9']);
 /** A sideways step in colour (not up or down the "jazz" chain): a ninth here, an eleventh there. */

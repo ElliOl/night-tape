@@ -5,7 +5,7 @@
  */
 import type { NoteEvent } from '@shared/index';
 import { chance, int, stream, weightedPick, type Rng } from '../rng';
-import { chordPcs, clamp, melodyScale, mod12, nearestInSet } from '../theory';
+import { chordPcs, clamp, melodyPcsOver, melodyScale, mod12, nearestInSet } from '../theory';
 import { barStart, drift, energy, humanize, note, slot, songMood, songSwing, step8, style, type BarContext } from './context';
 import { renderSolo } from './solo';
 
@@ -83,6 +83,7 @@ export function renderMelody(ctx: BarContext): NoteEvent[] {
   const base = register(ctx);
   const chord = slot(ctx).chord;
   const pcsChord = chordPcs(chord);
+  const pcsFit = melodyPcsOver(ctx.song.key, chord);
   const start = barStart(ctx);
   const swing = songSwing(ctx);
   const vel = 0.32 + energy(ctx) * 0.5;
@@ -118,7 +119,7 @@ export function renderMelody(ctx: BarContext): NoteEvent[] {
     const i8 = n.at - half * 8;
     let midi = toMidi(step);
     const strong = i8 % 4 === 0 || n.len >= 3;
-    if (strong) midi = nearestInSet(midi, pcsChord);
+    midi = nearestInSet(midi, strong ? pcsChord : pcsFit);
     const lenBeats = (n.len / 2) * 0.92;
     const beat = start + step8(i8, swing) + Math.max(0, humanize(rng, 0.012));
     out.push(note('melody', beat, lenBeats, midi, vel * (strong ? 1 : 0.88) + humanize(rng, 0.05)));

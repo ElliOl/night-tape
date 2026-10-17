@@ -90,6 +90,8 @@ export interface SoundPalette {
   drumTune: number;
   /** 0..1 per-song colour of the keys (brightness, tremolo, chorus) */
   keysColor: number;
+  /** 0..1 per-song sustain of the keys: 0 = dry and short, 1 = long decay and release (chords ring) */
+  keysRing?: number;
 }
 
 /** Switches instrument patches (sent at the start of every song). */

@@ -72,17 +72,27 @@ export function renderKeys(ctx: BarContext): NoteEvent[] {
   const baseVel = (0.26 + e * 0.52) * (solo ? 0.7 : 1);
   const chordStart = isChordStartBar(ctx);
 
-  // guitar chords are strummed, everything else is lightly rolled
+  // guitar chords are strummed; otherwise the song's touch decides: struck as one block, lightly staggered or rolled
   const guitar = style(ctx).palette.keys === 'guitar';
-  const roll = guitar ? 0.035 + rng.next() * 0.03 : comp === 'rolled' || sparse ? 0.06 + rng.next() * 0.06 : 0.01 + rng.next() * 0.025;
+  const touch = style(ctx).touch;
+  const ring = style(ctx).ring;
+  const rolledFeel = comp === 'rolled' || sparse;
+  const roll = guitar
+    ? 0.035 + rng.next() * 0.03
+    : touch === 'block'
+      ? (rolledFeel ? 0.02 : 0) + rng.next() * 0.004
+      : touch === 'rolled' || rolledFeel ? 0.06 + rng.next() * 0.06 : 0.01 + rng.next() * 0.025;
   const shift = style(ctx).keysShift;
   const play = (voicing: readonly number[], at: number, lenBeats: number, vel: number): void => {
     // strum alternates down/up on guitar
     const ordered = guitar && Math.round(at * 2) % 2 === 1 ? [...voicing].reverse() : voicing;
+    // a block chord moves as one hand: one timing offset for the whole chord
+    const handJitter = Math.max(0, humanize(rng, 0.01));
     ordered.forEach((m, i) => {
       const midi = m + shift;
       const top = m === voicing[voicing.length - 1];
-      const beat = start + at + lag + i * roll + Math.max(0, humanize(rng, 0.01));
+      const jit = touch === 'block' && !guitar ? handJitter + humanize(rng, 0.002) : Math.max(0, humanize(rng, 0.01));
+      const beat = start + at + lag + i * roll + Math.max(0, jit);
       out.push(note('keys', beat, Math.max(0.15, lenBeats - i * roll), midi, vel * (top ? 1.08 : 0.9) + humanize(rng, 0.04)));
     });
   };
@@ -100,7 +110,7 @@ export function renderKeys(ctx: BarContext): NoteEvent[] {
       if (i % 2 === 1 && e < 0.3) continue;
       const midi = v[ARP_ORDER[i]! % v.length]! + style(ctx).keysShift;
       const at = step16(i * 2, swing);
-      out.push(note('keys', start + at + lag + Math.max(0, humanize(rng, 0.01)), 1.1, midi, baseVel * (i % 2 === 0 ? 0.95 : 0.75)));
+      out.push(note('keys', start + at + lag + Math.max(0, humanize(rng, 0.01)), 1.1 + ring * 1.6, midi, baseVel * (i % 2 === 0 ? 0.95 : 0.75)));
     }
     return out;
   }
@@ -117,22 +127,26 @@ export function renderKeys(ctx: BarContext): NoteEvent[] {
   const pushedIn = !sparse && ctx.inSection > 0 && chordStart && pushesInto(ctx, ctx.bar - 1);
   const pushOut = !sparse && chordChangesNext(ctx) && !isSectionLastBar(ctx) && pushesInto(ctx, ctx.bar);
 
-  for (const [s, len] of hits) {
-    if (pushedIn && s === 0) continue;
+  hits.forEach(([s, len], j) => {
+    if (pushedIn && s === 0) return;
     // chopped bars lose a slice or two, so the flip never loops quite the same
-    if (comp === 'chops' && s !== 0 && chance(rng, 0.2 + drift(ctx) * 0.2)) continue;
+    if (comp === 'chops' && s !== 0 && chance(rng, 0.2 + drift(ctx) * 0.2)) return;
     const at = step16(s, swing);
     let endAt = Math.min(4, step16(Math.min(16, s + len), swing));
     if (s + len >= 16) endAt = 4;
+    // ringing songs hold each chord into the next hit (and, on a held chord, a little past the bar line)
+    const next = hits[j + 1];
+    const ringTo = next ? step16(next[0], swing) : chordChangesNext(ctx) ? 4 : 4 + ring * 0.6;
+    if (ring > 0 && ringTo > endAt) endAt += (ringTo - endAt) * ring;
     if (pushOut && s + len > 14) endAt = Math.min(endAt, step16(14, swing));
-    const len16 = (endAt - at) * 0.94;
-    if (len16 < 0.12) continue;
+    const len16 = (endAt - at) * (0.94 + ring * 0.06);
+    if (len16 < 0.12) return;
     play(cur.keys, at, len16, baseVel * (s === 0 ? 1 : 0.85));
-  }
+  });
 
   if (pushOut) {
     const at = step16(14, swing);
-    play(nextSlot(ctx).keys, at, 4 - at + 0.45, baseVel * 0.95);
+    play(nextSlot(ctx).keys, at, 4 - at + 0.45 + ring * 1.5, baseVel * 0.95);
   }
   return out;
 }

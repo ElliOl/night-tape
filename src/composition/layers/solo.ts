@@ -7,7 +7,7 @@
 import type { LayerId, NoteEvent } from '@shared/index';
 import { harmonyAt } from '../form';
 import { chance, int, stream, weightedPick, type Rng } from '../rng';
-import { chordPcs, clamp, isMinorScale, melodyScale, mod12, nearestInSet } from '../theory';
+import { chordPcs, clamp, isMinorScale, melodyPcsOver, melodyScale, mod12, nearestInSet } from '../theory';
 import { barStart, drift, energy, humanize, note, songSwing, swingRatio, type BarContext } from './context';
 
 interface PhraseNote {
@@ -58,6 +58,8 @@ function makePhrase(ctx: BarContext, phraseRel: number, rng: Rng, lo: number, hi
     const bar = b < 4 ? 0 : 1;
     const h = harmonyAt(ctx.song, Math.min(ctx.song.lengthBars - 1, phraseRel + bar), ctx.params.complexity);
     const chordTones = chordPcs(h.slot.chord);
+    const fit = melodyPcsOver(ctx.song.key, h.slot.chord);
+    const blue = isMinorScale(ctx.song.key.scale) ? mod12(ctx.song.key.tonic + 6) : -1;
     onsets.forEach((o, k) => {
       const dir = b + o < peakBeat ? 1 : -1;
       const step = weightedPick(rng, [[1, 5], [2, 2], [0, 1], [-1, 2], [3, 1]] as const) * dir;
@@ -65,6 +67,8 @@ function makePhrase(ctx: BarContext, phraseRel: number, rng: Rng, lo: number, hi
       let midi = pitches[idx]!;
       const strong = o === 0 && (b % 2 === 0);
       if (strong) midi = nearestInSet(midi, chordTones);
+      // weak notes avoid clashes with the chord (the blue note may rub on purpose)
+      else if (!fit.includes(mod12(midi)) && mod12(midi) !== blue) midi = nearestInSet(midi, fit);
       // swing the off-8ths like the drums
       const at = b + (o === 0.5 ? swing : o === 0.75 ? 0.5 + swing * 0.5 : o);
       notes.push({ at, len: len * 0.9, midi, vel: (strong ? 0.85 : 0.68) * (k === 0 ? 1 : 0.9) });
