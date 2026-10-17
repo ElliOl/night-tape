@@ -37,7 +37,6 @@ export function StationPanel() {
           </button>
         ))}
       </div>
-      <p className="panel__hint">Each station has its own pool of instruments, kits and grooves; every song picks a new combination. Switching station wraps up the current song within a few bars.</p>
     </section>
   );
 }
@@ -220,9 +219,6 @@ export function ChaosPanel() {
           </div>
         </div>
       </div>
-      <p className="panel__hint">
-        A Lorenz attractor rides the knobs: smooth, never repeating, darker in breaks and brighter in solos. Dots on the knobs show where it is pushing.
-      </p>
     </section>
   );
 }
