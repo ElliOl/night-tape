@@ -1,0 +1,91 @@
+import * as Tone from 'tone';
+import type { LayerId } from '@shared/index';
+import { faderToGain, layerAutomationGain } from './mapping';
+import { rampParam, type Instrument } from './instruments/instrument';
+
+/** Static pan per layer (instruments are already stereo; keep the centre-heavy layers centred). */
+const LAYER_PAN: Record<LayerId, number> = { keys: -0.05, pad: 0, bass: 0, melody: 0.12, drums: 0, texture: 0 };
+
+/**
+ * One channel strip per layer:
+ *   instrument.output -> autoGain ('layer.gain.<layer>' automation) -> gate (pause) -> monitor (mute)
+ *   -> fader (user mixer) -> panner -> dry (master input)  +  reverbSend -> fx.reverbIn  +  delaySend -> fx.delayIn
+ * Fader, automation gain and mute/solo ("monitor") are separate gain stages so they multiply.
+ * Sends are post-fader/post-gate/post-monitor, so a muted layer also stops feeding reverb/delay (tails already in the
+ * reverb/delay returns keep ringing naturally).
+ */
+export class ChannelStrip {
+  readonly auto: Tone.Gain;
+  readonly gate: Tone.Gain;
+  readonly monitor: Tone.Gain;
+  readonly fader: Tone.Gain;
+  readonly panner: Tone.Panner;
+  readonly reverbSend: Tone.Gain;
+  readonly delaySend: Tone.Gain;
+
+  private faderValue: number;
+  constructor(
+    readonly layer: LayerId,
+    instrument: Instrument,
+    dryOut: Tone.ToneAudioNode,
+    reverbIn: Tone.ToneAudioNode,
+    delayIn: Tone.ToneAudioNode,
+    initialFader = 0.7,
+  ) {
+    this.faderValue = initialFader;
+    this.auto = new Tone.Gain(1);
+    this.gate = new Tone.Gain(1);
+    this.monitor = new Tone.Gain(1);
+    // Created at its real level: a value scheduled right after construction can be lost while the context is
+    // starting up (seen in Chrome), which left whole layers silent.
+    this.fader = new Tone.Gain(faderToGain(initialFader));
+    this.panner = new Tone.Panner(LAYER_PAN[layer]);
+    this.reverbSend = new Tone.Gain(0);
+    this.delaySend = new Tone.Gain(0);
+
+    instrument.output.chain(this.auto, this.gate, this.monitor, this.fader, this.panner, dryOut);
+    this.panner.connect(this.reverbSend);
+    this.reverbSend.connect(reverbIn);
+    this.panner.connect(this.delaySend);
+    this.delaySend.connect(delayIn);
+  }
+
+  setFader(value01: number, time = Tone.now(), rampSeconds = 0.05): void {
+    this.faderValue = value01;
+    this.applyFader(time, rampSeconds);
+  }
+
+  /** Mute stage: `audible` false => silent (ramped, click-free). Independent of fader/automation. */
+  setAudible(audible: boolean, time = Tone.now(), rampSeconds = 0.04): void {
+    rampParam(this.monitor.gain, audible ? 1 : 0, time, rampSeconds);
+  }
+
+  private applyFader(time: number, rampSeconds: number): void {
+    rampParam(this.fader.gain, faderToGain(this.faderValue), time, rampSeconds);
+  }
+
+  /** 'layer.gain.<layer>' automation */
+  setAutomationGain(value01: number, time: number, rampSeconds: number): void {
+    rampParam(this.auto.gain, layerAutomationGain(value01), time, rampSeconds);
+  }
+
+  setGate(open: boolean, time: number, rampSeconds: number): void {
+    rampParam(this.gate.gain, open ? 1 : 0, time, rampSeconds);
+  }
+
+  /** Send gains are base(mood) * bus multiplier (send.reverb/send.delay automation). */
+  setSends(reverb: number, delay: number, time: number, rampSeconds: number): void {
+    rampParam(this.reverbSend.gain, reverb, time, rampSeconds);
+    rampParam(this.delaySend.gain, delay, time, rampSeconds);
+  }
+
+  /** Back to neutral automation state (used by reset). */
+  resetAutomation(time: number): void {
+    this.auto.gain.cancelScheduledValues(time);
+    this.auto.gain.setValueAtTime(1, time);
+  }
+
+  dispose(): void {
+    for (const n of [this.auto, this.gate, this.monitor, this.fader, this.panner, this.reverbSend, this.delaySend]) n.dispose();
+  }
+}
