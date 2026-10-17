@@ -70,7 +70,8 @@ export class AudioGraph {
 
   /** A new song: every instrument moves to its patch (glides while the song transition has the master filter closed). */
   applyPalette(palette: SoundPalette, rampSeconds = 1.2): void {
-    for (const l of ['keys', 'pad', 'bass', 'melody', 'drums'] as const) this.instruments[l].setPatch?.(palette[l], rampSeconds);
+    for (const l of ['keys', 'pad', 'bass', 'melody'] as const) this.instruments[l].setPatch?.(palette[l], rampSeconds);
+    this.instruments.drums.setPatch(palette.drums, rampSeconds, palette.drumTune ?? 0);
   }
 
   setLayerMuted(layer: LayerId, muted: boolean): void {

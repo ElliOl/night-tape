@@ -79,6 +79,10 @@ export interface DrumPreset {
   kickHz: number;
   kickDecay: number;
   kickPitchOct: number;
+  /** how fast the kick's pitch drops (short = punchy, long = 808 boom) */
+  kickPitchDecay: number;
+  /** level of the beater click (dB; <= -60 = off) */
+  kickClickDb: number;
   kickDb: number;
   snareDb: number;
   snareDecay: number;
@@ -86,6 +90,12 @@ export interface DrumPreset {
   /** centre of the snare's noise band */
   snareHz: number;
   snareNoise: 'white' | 'pink' | 'brown';
+  /** slow attack = brush swish */
+  snareAttack: number;
+  /** resonance of the snare band (high = ringy) */
+  snareQ: number;
+  /** tonal body level relative to the snare (dB) */
+  snareBodyDb: number;
   clapDb: number;
   rimDb: number;
   rideDb: number;
@@ -209,6 +219,8 @@ const BASE: MoodPreset = {
   },
   drums: {
     kickHz: 52,
+    kickPitchDecay: 0.045,
+    kickClickDb: -70,
     kickDecay: 0.42,
     kickPitchOct: 3.2,
     kickDb: -4,
@@ -217,6 +229,9 @@ const BASE: MoodPreset = {
     snareToneHz: 185,
     snareHz: 1900,
     snareNoise: 'pink',
+    snareAttack: 0.002,
+    snareQ: 1.2,
+    snareBodyDb: -4,
     clapDb: -12,
     rimDb: -14,
     rideDb: -22,
@@ -338,13 +353,59 @@ export const LEAD_PATCHES: Record<LeadPatchId, Patch<MelodyPreset>> = {
   synth: { bell: 0.2, softWave: 'square', attack: 0.02, release: 0.5, vibratoRate: 5, vibratoDepth: 0.1, filterDefault: 0.4, trimDb: -7 },
 };
 
+/**
+ * Drum kits: each one is a different instrument, not a small variation (kick weight and sweep, snare colour and
+ * length, hat brightness, saturation and tone all change).
+ */
 export const KITS: Record<KitId, Patch<DrumPreset>> = {
-  dusty: {},
-  brushes: { kickDb: -10, kickDecay: 0.3, snareNoise: 'pink', snareDecay: 0.35, snareHz: 2600, snareDb: -14, hatDb: -26, rideDb: -23, ceilingHz: 5000, drive: 1.2 },
-  tight: { kickHz: 48, kickDecay: 0.6, kickPitchOct: 4.5, kickDb: -2, snareDecay: 0.12, snareHz: 2200, snareNoise: 'white', snareDb: -11, clapDb: -10, hatDecay: 0.03, hatHpHz: 8000, ceilingHz: 9500, drive: 1.4 },
-  crunchy: { kickDecay: 0.45, kickPitchOct: 3, drive: 4.5, ceilingHz: 3800, snareDb: -10, hatDb: -20, snareHz: 1600, trimDb: -2 },
-  jazz: { kickDb: -9, kickHz: 60, kickDecay: 0.3, snareNoise: 'white', snareDecay: 0.22, snareHz: 3000, rideDb: -20, hatDb: -24, ceilingHz: 8000, drive: 1.3 },
-  soft: { kickDb: -7, kickDecay: 0.5, snareDb: -16, rimDb: -13, hatDb: -26, shakerDb: -22, ceilingHz: 4200, drive: 1.1 },
+  // warm, round boom-bap
+  dusty: {
+    kickHz: 52, kickDecay: 0.42, kickPitchOct: 3.2, kickPitchDecay: 0.045, kickClickDb: -70, kickDb: -4,
+    snareNoise: 'pink', snareHz: 1900, snareQ: 1.2, snareDecay: 0.17, snareAttack: 0.002, snareToneHz: 185, snareBodyDb: -4, snareDb: -12,
+    hatHpHz: 6500, hatDecay: 0.045, hatDb: -22, ceilingHz: 6500, drive: 1.8,
+  },
+  // sampler pushed into the red: thick, gritty, dark
+  crunchy: {
+    kickHz: 58, kickDecay: 0.3, kickPitchOct: 2.5, kickPitchDecay: 0.03, kickClickDb: -18, kickDb: -3,
+    snareNoise: 'white', snareHz: 1400, snareQ: 2.5, snareDecay: 0.22, snareAttack: 0.001, snareToneHz: 220, snareBodyDb: 0, snareDb: -9,
+    hatHpHz: 4200, hatDecay: 0.09, hatDb: -16, ceilingHz: 3200, drive: 6, trimDb: 0,
+  },
+  // short, clicky, bright and dry
+  tight: {
+    kickHz: 50, kickDecay: 0.22, kickPitchOct: 4, kickPitchDecay: 0.02, kickClickDb: -12, kickDb: -3,
+    snareNoise: 'white', snareHz: 3200, snareQ: 0.8, snareDecay: 0.09, snareAttack: 0.001, snareToneHz: 240, snareBodyDb: -8, snareDb: -10,
+    hatHpHz: 9500, hatDecay: 0.018, hatDb: -17, ceilingHz: 12000, drive: 1.3,
+  },
+  // long booming sub kick, snappy snare, crisp hats
+  eight08: {
+    kickHz: 41, kickDecay: 1.2, kickPitchOct: 5.5, kickPitchDecay: 0.08, kickClickDb: -22, kickDb: -1,
+    snareNoise: 'white', snareHz: 2600, snareQ: 1, snareDecay: 0.14, snareAttack: 0.001, snareToneHz: 200, snareBodyDb: -2, snareDb: -11,
+    clapDb: -8, hatHpHz: 8500, hatDecay: 0.035, hatDb: -17, ceilingHz: 10000, drive: 2.2,
+  },
+  // feathered kick, swishing brushes
+  brushes: {
+    kickHz: 60, kickDecay: 0.25, kickPitchOct: 1.5, kickPitchDecay: 0.03, kickClickDb: -70, kickDb: -11,
+    snareNoise: 'pink', snareHz: 3000, snareQ: 0.6, snareDecay: 0.45, snareAttack: 0.03, snareToneHz: 200, snareBodyDb: -30, snareDb: -13,
+    hatHpHz: 5000, hatDecay: 0.08, hatDb: -28, rideDb: -21, ceilingHz: 5500, drive: 1.1,
+  },
+  // tuned-up jazz kit: ringing snare, ride
+  jazz: {
+    kickHz: 64, kickDecay: 0.28, kickPitchOct: 2, kickPitchDecay: 0.03, kickClickDb: -30, kickDb: -8,
+    snareNoise: 'white', snareHz: 3400, snareQ: 3, snareDecay: 0.2, snareAttack: 0.001, snareToneHz: 300, snareBodyDb: -1, snareDb: -12,
+    hatHpHz: 7500, hatDecay: 0.04, hatDb: -23, rideDb: -19, ceilingHz: 9000, drive: 1.2,
+  },
+  // pillows: muffled, low, gentle
+  soft: {
+    kickHz: 55, kickDecay: 0.5, kickPitchOct: 2.5, kickPitchDecay: 0.05, kickClickDb: -70, kickDb: -6,
+    snareNoise: 'brown', snareHz: 1200, snareQ: 0.7, snareDecay: 0.25, snareAttack: 0.004, snareToneHz: 170, snareBodyDb: -6, snareDb: -13,
+    rimDb: -13, hatHpHz: 3500, hatDecay: 0.08, hatDb: -30, shakerDb: -22, ceilingHz: 3000, drive: 1.1,
+  },
+  // a break sampled off an old tape: boxy, dark, saturated
+  tape: {
+    kickHz: 62, kickDecay: 0.35, kickPitchOct: 2.8, kickPitchDecay: 0.035, kickClickDb: -26, kickDb: -3,
+    snareNoise: 'pink', snareHz: 1700, snareQ: 1.6, snareDecay: 0.2, snareAttack: 0.002, snareToneHz: 170, snareBodyDb: -2, snareDb: -10,
+    hatHpHz: 3000, hatDecay: 0.11, hatDb: -18, ceilingHz: 2400, drive: 3.5, trimDb: 2,
+  },
 };
 
 /** Station preset with a patch on top. */

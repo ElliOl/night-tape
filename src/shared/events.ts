@@ -76,7 +76,7 @@ export type KeysPatchId = 'rhodes' | 'wurli' | 'felt' | 'organ' | 'vibes' | 'dus
 export type PadPatchId = 'warm' | 'strings' | 'glass' | 'hollow' | 'tape';
 export type BassPatchId = 'round' | 'upright' | 'muted' | 'square' | 'fingered';
 export type LeadPatchId = 'flute' | 'kalimba' | 'vibes' | 'trumpet' | 'whistle' | 'guitar' | 'synth';
-export type KitId = 'dusty' | 'brushes' | 'tight' | 'crunchy' | 'jazz' | 'soft';
+export type KitId = 'dusty' | 'brushes' | 'tight' | 'crunchy' | 'jazz' | 'soft' | 'eight08' | 'tape';
 
 export interface SoundPalette {
   keys: KeysPatchId;
@@ -84,6 +84,8 @@ export interface SoundPalette {
   bass: BassPatchId;
   melody: LeadPatchId;
   drums: KitId;
+  /** kit tuning in semitones (every song retunes its drums) */
+  drumTune: number;
 }
 
 /** Switches instrument patches (sent at the start of every song). */

@@ -20,7 +20,7 @@ export interface Instrument {
    *  `resetAutomation` = forget automated filter/noise positions and go back to the preset defaults. */
   setPreset(mood: MoodId, rampSeconds: number, resetAutomation?: boolean): void;
   /** Switch to a song's patch (id from SoundPalette); ramps like setPreset. Optional. */
-  setPatch?(patch: string, rampSeconds: number): void;
+  setPatch?(patch: string, rampSeconds: number, tune?: number): void;
   /** Release all sounding notes at `time` (default: now). */
   releaseAll(time?: number): void;
   /** Number of voices currently sounding (including release tails). For diagnostics. */

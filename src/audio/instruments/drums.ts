@@ -17,6 +17,7 @@ export class DrumsInstrument implements Instrument {
   private readonly shaper: Tone.WaveShaper;
   private readonly ceiling: Tone.Filter;
   private readonly kick: Tone.MembraneSynth;
+  private readonly click: Tone.NoiseSynth;
   private readonly snare: Tone.NoiseSynth;
   private readonly snareBand: Tone.Filter;
   private readonly snareBody: Tone.MembraneSynth;
@@ -33,6 +34,8 @@ export class DrumsInstrument implements Instrument {
   private preset: DrumPreset;
   private mood: MoodId;
   private kit: KitId = 'dusty';
+  /** song tuning in semitones */
+  private tune = 0;
   private busyUntil = 0;
 
   constructor(mood: MoodId) {
@@ -52,17 +55,22 @@ export class DrumsInstrument implements Instrument {
     };
 
     this.kick = new Tone.MembraneSynth({
-      pitchDecay: 0.045,
+      pitchDecay: p.kickPitchDecay,
       octaves: p.kickPitchOct,
       oscillator: { type: 'sine' },
       envelope: { attack: 0.003, decay: p.kickDecay, sustain: 0, release: 0.08 },
       volume: p.kickDb,
     }).connect(this.bus);
+    this.click = new Tone.NoiseSynth({
+      noise: { type: 'white' },
+      envelope: { attack: 0.0005, decay: 0.008, sustain: 0, release: 0.005 },
+      volume: p.kickClickDb,
+    }).chain(filter('highpass', 1800, 0.7), this.bus);
 
-    this.snareBand = filter('peaking', p.snareHz, 1.2);
+    this.snareBand = filter('peaking', p.snareHz, p.snareQ);
     this.snare = new Tone.NoiseSynth({
       noise: { type: p.snareNoise },
-      envelope: { attack: 0.002, decay: p.snareDecay, sustain: 0, release: 0.05 },
+      envelope: { attack: p.snareAttack, decay: p.snareDecay, sustain: 0, release: 0.05 },
       volume: p.snareDb,
     }).chain(filter('highpass', 600), this.snareBand, this.bus);
     this.snareBody = new Tone.MembraneSynth({
@@ -70,7 +78,7 @@ export class DrumsInstrument implements Instrument {
       octaves: 0.8,
       oscillator: { type: 'triangle' },
       envelope: { attack: 0.001, decay: 0.09, sustain: 0, release: 0.03 },
-      volume: p.snareDb - 4,
+      volume: p.snareDb + p.snareBodyDb,
     }).connect(this.bus);
 
     this.clap = new Tone.NoiseSynth({
@@ -127,24 +135,31 @@ export class DrumsInstrument implements Instrument {
     return withPatch(getPreset(this.mood).drums, KITS[this.kit]);
   }
 
+  /** frequency ratio of the song's kit tuning */
+  private get ratio(): number {
+    return Math.pow(2, this.tune / 12);
+  }
+
   trigger(midi: number, durSeconds: number, time: number, vel: number): void {
     const p = this.preset;
+    const k = this.ratio;
     const v = Math.max(0.05, Math.min(1, 0.15 + 0.85 * vel));
     this.busyUntil = Math.max(this.busyUntil, time + 0.4);
     switch (midi) {
       case DRUM.kick:
-        this.kick.triggerAttackRelease(p.kickHz, p.kickDecay, time, v);
+        this.kick.triggerAttackRelease(p.kickHz * k, p.kickDecay, time, v);
+        if (p.kickClickDb > -60) this.click.triggerAttackRelease(0.008, time, v);
         break;
       case DRUM.snare:
         this.snare.triggerAttackRelease(p.snareDecay, time, v);
-        this.snareBody.triggerAttackRelease(p.snareToneHz, 0.08, time, v);
+        if (p.snareBodyDb > -25) this.snareBody.triggerAttackRelease(p.snareToneHz * k, 0.08, time, v);
         break;
       case DRUM.clap:
         for (let i = 0; i < 3; i++) this.clap.triggerAttackRelease(0.01, time + i * 0.01, v * (0.5 + 0.15 * i));
         this.clap.triggerAttackRelease(0.11, time + 0.03, v);
         break;
       case DRUM.rim:
-        this.rim.triggerAttackRelease(820, 0.03, time, v);
+        this.rim.triggerAttackRelease(820 * k, 0.03, time, v);
         this.rimClick.triggerAttackRelease(0.012, time, v);
         break;
       case DRUM.hatClosed:
@@ -171,9 +186,11 @@ export class DrumsInstrument implements Instrument {
     // drums have no automation target
   }
 
-  setPatch(patch: string, rampSeconds: number): void {
-    if (!(patch in KITS) || patch === this.kit) return;
+  setPatch(patch: string, rampSeconds: number, tune = 0): void {
+    if (!(patch in KITS)) return;
+    if (patch === this.kit && tune === this.tune) return;
     this.kit = patch as KitId;
+    this.tune = Number.isFinite(tune) ? Math.max(-12, Math.min(12, tune)) : 0;
     this.setPreset(this.mood, rampSeconds);
   }
 
@@ -187,21 +204,28 @@ export class DrumsInstrument implements Instrument {
     rampParam(this.ceiling.frequency, safeCutoff(p.ceilingHz), now, rampSeconds);
     rampParam(this.kick.volume, p.kickDb, now, rampSeconds);
     rampParam(this.snare.volume, p.snareDb, now, rampSeconds);
-    rampParam(this.snareBody.volume, p.snareDb - 4, now, rampSeconds);
-    rampParam(this.snareBand.frequency, p.snareHz, now, rampSeconds);
+    const k = this.ratio;
+    rampParam(this.snareBody.volume, p.snareDb + p.snareBodyDb, now, rampSeconds);
+    rampParam(this.snareBand.frequency, safeCutoff(p.snareHz * k), now, rampSeconds);
+    rampParam(this.snareBand.Q, p.snareQ, now, rampSeconds);
+    rampParam(this.click.volume, Math.max(-80, p.kickClickDb), now, rampSeconds);
     rampParam(this.clap.volume, p.clapDb, now, rampSeconds);
     rampParam(this.rim.volume, p.rimDb, now, rampSeconds);
     rampParam(this.rimClick.volume, p.rimDb - 6, now, rampSeconds);
     rampParam(this.hat.volume, p.hatDb, now, rampSeconds);
     rampParam(this.openHat.volume, p.hatDb - 2, now, rampSeconds);
-    rampParam(this.hatHp.frequency, safeCutoff(p.hatHpHz), now, rampSeconds);
-    rampParam(this.openHp.frequency, safeCutoff(p.hatHpHz - 500), now, rampSeconds);
+    // hats follow the tuning at half strength (they are mostly noise)
+    const hk = Math.sqrt(k);
+    rampParam(this.hatHp.frequency, safeCutoff(p.hatHpHz * hk), now, rampSeconds);
+    rampParam(this.openHp.frequency, safeCutoff((p.hatHpHz - 500) * hk), now, rampSeconds);
     rampParam(this.ride.volume, p.rideDb, now, rampSeconds);
     rampParam(this.shaker.volume, p.shakerDb, now, rampSeconds);
     if (p.drive !== prev.drive) this.shaper.curve = saturationCurve(p.drive);
     // per-hit shape: only affects the next hit
     if (p.snareNoise !== prev.snareNoise) this.snare.noise.type = p.snareNoise;
     this.kick.octaves = p.kickPitchOct;
+    this.kick.pitchDecay = p.kickPitchDecay;
+    this.snare.envelope.attack = p.snareAttack;
     this.kick.envelope.decay = p.kickDecay;
     this.snare.envelope.decay = p.snareDecay;
     this.hat.envelope.decay = p.hatDecay;
@@ -221,7 +245,7 @@ export class DrumsInstrument implements Instrument {
 
   dispose(): void {
     for (const n of [
-      this.kick, this.snare, this.snareBody, this.clap, this.rim, this.rimClick, this.hat, this.openHat, this.ride, this.shaker,
+      this.kick, this.click, this.snare, this.snareBody, this.clap, this.rim, this.rimClick, this.hat, this.openHat, this.ride, this.shaker,
     ]) {
       n.dispose();
     }

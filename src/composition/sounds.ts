@@ -12,7 +12,7 @@ export const PATCH_LABELS: {
   pad: { warm: 'warm pad', strings: 'tape strings', glass: 'glass pad', hollow: 'hollow pad', tape: 'wobbly strings' },
   bass: { round: 'sub bass', upright: 'upright bass', muted: 'muted bass', square: 'square bass', fingered: 'finger bass' },
   melody: { flute: 'flute', kalimba: 'kalimba', vibes: 'vibes', trumpet: 'muted trumpet', whistle: 'whistle', guitar: 'jazz guitar', synth: 'soft synth' },
-  drums: { dusty: 'dusty kit', brushes: 'brush kit', tight: 'tight kit', crunchy: 'crunchy SP kit', jazz: 'jazz kit', soft: 'soft kit' },
+  drums: { dusty: 'dusty kit', brushes: 'brush kit', tight: 'tight kit', crunchy: 'crunchy SP kit', jazz: 'jazz kit', soft: 'soft kit', eight08: '808 kit', tape: 'tape break' },
 };
 
 /** "Rhodes · upright bass · kalimba · crunchy SP kit" */

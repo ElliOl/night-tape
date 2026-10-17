@@ -133,6 +133,8 @@ export function pickStyle(rng: Rng, mood: MoodConfig): SongStyle {
       bass: wpick(rng, mood.bassPatches),
       melody,
       drums,
+      // every song retunes its kit, so even the same kit never sounds quite the same
+      drumTune: int(rng, -4, 4),
     },
     voicing: wpick(rng, mood.voicings),
     comps,
