@@ -8,7 +8,10 @@ export const PATCH_LABELS: {
   melody: Record<LeadPatchId, string>;
   drums: Record<KitId, string>;
 } = {
-  keys: { rhodes: 'Rhodes', wurli: 'Wurlitzer', felt: 'felt piano', organ: 'organ', vibes: 'vibraphone keys', dusty: 'dusty upright' },
+  keys: {
+    rhodes: 'Rhodes', wurli: 'Wurlitzer', felt: 'felt piano', organ: 'organ', vibes: 'vibraphone keys', dusty: 'dusty upright',
+    juno: 'Juno poly', clav: 'clavinet', guitar: 'muted guitar', musicbox: 'music box',
+  },
   pad: { warm: 'warm pad', strings: 'tape strings', glass: 'glass pad', hollow: 'hollow pad', tape: 'wobbly strings' },
   bass: { round: 'sub bass', upright: 'upright bass', muted: 'muted bass', square: 'square bass', fingered: 'finger bass' },
   melody: { flute: 'flute', kalimba: 'kalimba', vibes: 'vibes', trumpet: 'muted trumpet', whistle: 'whistle', guitar: 'jazz guitar', synth: 'soft synth' },

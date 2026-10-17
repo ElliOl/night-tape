@@ -69,10 +69,16 @@ export function renderKeys(ctx: BarContext): NoteEvent[] {
   const baseVel = (0.26 + e * 0.52) * (solo ? 0.7 : 1);
   const chordStart = isChordStartBar(ctx);
 
-  const roll = comp === 'rolled' || sparse ? 0.06 + rng.next() * 0.06 : 0.01 + rng.next() * 0.025;
+  // guitar chords are strummed, everything else is lightly rolled
+  const guitar = style(ctx).palette.keys === 'guitar';
+  const roll = guitar ? 0.035 + rng.next() * 0.03 : comp === 'rolled' || sparse ? 0.06 + rng.next() * 0.06 : 0.01 + rng.next() * 0.025;
+  const shift = style(ctx).keysShift;
   const play = (voicing: readonly number[], at: number, lenBeats: number, vel: number): void => {
-    voicing.forEach((midi, i) => {
-      const top = i === voicing.length - 1;
+    // strum alternates down/up on guitar
+    const ordered = guitar && Math.round(at * 2) % 2 === 1 ? [...voicing].reverse() : voicing;
+    ordered.forEach((m, i) => {
+      const midi = m + shift;
+      const top = m === voicing[voicing.length - 1];
       const beat = start + at + lag + i * roll + Math.max(0, humanize(rng, 0.01));
       out.push(note('keys', beat, Math.max(0.15, lenBeats - i * roll), midi, vel * (top ? 1.08 : 0.9) + humanize(rng, 0.04)));
     });
@@ -89,7 +95,7 @@ export function renderKeys(ctx: BarContext): NoteEvent[] {
     const v = cur.keys;
     for (let i = 0; i < 8; i++) {
       if (i % 2 === 1 && e < 0.3) continue;
-      const midi = v[ARP_ORDER[i]! % v.length]!;
+      const midi = v[ARP_ORDER[i]! % v.length]! + style(ctx).keysShift;
       const at = step16(i * 2, swing);
       out.push(note('keys', start + at + lag + Math.max(0, humanize(rng, 0.01)), 1.1, midi, baseVel * (i % 2 === 0 ? 0.95 : 0.75)));
     }

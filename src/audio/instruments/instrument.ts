@@ -18,9 +18,10 @@ export interface Instrument {
   automate(param: InstrumentParam, value01: number, time: number, rampSeconds?: number): void;
   /** Ramp every tweakable parameter to the mood's preset over `rampSeconds`. Never rebuilds nodes.
    *  `resetAutomation` = forget automated filter/noise positions and go back to the preset defaults. */
-  setPreset(mood: MoodId, rampSeconds: number, resetAutomation?: boolean): void;
+  setPreset(mood: MoodId, rampSeconds: number, resetAutomation?: boolean, at?: number): void;
   /** Switch to a song's patch (id from SoundPalette); ramps like setPreset. Optional. */
-  setPatch?(patch: string, rampSeconds: number, tune?: number): void;
+  /** `variant`: per-song tuning / colour; `at`: audio time to apply at (default now; needed inside Tone.Offline) */
+  setPatch?(patch: string, rampSeconds: number, variant?: number, at?: number): void;
   /** Release all sounding notes at `time` (default: now). */
   releaseAll(time?: number): void;
   /** Number of voices currently sounding (including release tails). For diagnostics. */

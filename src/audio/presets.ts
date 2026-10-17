@@ -9,6 +9,16 @@ import type { BassPatchId, KeysPatchId, KitId, LayerId, LeadPatchId, MoodId, Pad
 export type Wave = 'sine' | 'triangle' | 'sawtooth' | 'square';
 
 export interface KeysPreset {
+  /** 'fm' = FM tine/bell engine, 'sub' = subtractive (oscillator -> resonant low-pass with its own envelope) */
+  engine: 'fm' | 'sub';
+  /** sub engine oscillator, e.g. 'triangle', 'fatsawtooth', 'square' */
+  subWave: string;
+  /** sub engine filter: start frequency, how far the envelope opens it, its decay / sustain and resonance */
+  envBaseHz: number;
+  envOctaves: number;
+  envDecay: number;
+  envSustain: number;
+  subQ: number;
   /** FM e-piano: modulator ratio and brightness */
   harmonicity: number;
   modIndex: number;
@@ -159,6 +169,13 @@ export const REVERB_IR = { decay: 3.2, preDelay: 0.02, brightHz: 6500, darkHz: 1
 
 const BASE: MoodPreset = {
   keys: {
+    engine: 'fm',
+    subWave: 'triangle',
+    envBaseHz: 300,
+    envOctaves: 3,
+    envDecay: 0.3,
+    envSustain: 0.2,
+    subQ: 1,
     harmonicity: 1,
     modIndex: 3.2,
     attack: 0.004,
@@ -318,13 +335,20 @@ export const getPreset = (mood: MoodId): MoodPreset => PRESETS[mood] ?? BASE;
 
 type Patch<T> = Partial<Omit<T, 'levelDb'>> & { trimDb?: number };
 
+/** Keys patches: two engines and very different envelopes, so a song on clav is nothing like one on a Rhodes. */
 export const KEYS_PATCHES: Record<KeysPatchId, Patch<KeysPreset>> = {
-  rhodes: { harmonicity: 1, modIndex: 3.2, modWave: 'sine', decay: 2.2, sustain: 0.18, release: 1.1, modDecay: 0.35, modSustain: 0.12, tremoloRate: 3.6, tremoloDepth: 0.28, chorusWet: 0.3, cutoffMax: 7000 },
-  wurli: { harmonicity: 1, modIndex: 5.5, modWave: 'triangle', decay: 1.4, sustain: 0.3, release: 0.5, modDecay: 0.18, modSustain: 0.2, tremoloRate: 5.6, tremoloDepth: 0.45, chorusWet: 0.15, cutoffMax: 9000, trimDb: -2 },
-  felt: { harmonicity: 2, modIndex: 1.1, modWave: 'sine', decay: 1.3, sustain: 0.04, release: 0.7, modDecay: 0.12, modSustain: 0.02, tremoloRate: 1, tremoloDepth: 0.02, chorusWet: 0.12, cutoffMax: 3600, trimDb: 2 },
-  organ: { harmonicity: 2, modIndex: 0.7, modWave: 'sine', attack: 0.015, decay: 0.4, sustain: 0.85, release: 0.25, modDecay: 2, modSustain: 0.9, tremoloRate: 6.4, tremoloDepth: 0.3, chorusWet: 0.5, cutoffMax: 6000, trimDb: -6 },
-  vibes: { harmonicity: 4, modIndex: 1.8, modWave: 'sine', decay: 2.8, sustain: 0.05, release: 1.6, modDecay: 0.6, modSustain: 0.05, tremoloRate: 5.2, tremoloDepth: 0.4, chorusWet: 0.2, cutoffMax: 9000, trimDb: -2 },
-  dusty: { harmonicity: 3, modIndex: 1.6, modWave: 'sine', decay: 1.8, sustain: 0.08, release: 0.9, modDecay: 0.25, modSustain: 0.05, tremoloRate: 2.5, tremoloDepth: 0.1, chorusWet: 0.35, cutoffMax: 3200, trimDb: 1 },
+  // ---- FM engine
+  rhodes: { engine: 'fm', harmonicity: 1, modIndex: 3.2, modWave: 'sine', attack: 0.004, decay: 2.2, sustain: 0.18, release: 1.1, modDecay: 0.35, modSustain: 0.12, tremoloRate: 3.6, tremoloDepth: 0.28, chorusWet: 0.3, cutoffMax: 7000, filterDefault: 0.72 },
+  wurli: { engine: 'fm', harmonicity: 1, modIndex: 5.5, modWave: 'triangle', attack: 0.003, decay: 1.4, sustain: 0.3, release: 0.8, modDecay: 0.18, modSustain: 0.2, tremoloRate: 5.6, tremoloDepth: 0.45, chorusWet: 0.15, cutoffMax: 9000, filterDefault: 0.75, trimDb: -3 },
+  vibes: { engine: 'fm', harmonicity: 4, modIndex: 1.8, modWave: 'sine', attack: 0.003, decay: 2.8, sustain: 0.05, release: 1.6, modDecay: 0.6, modSustain: 0.05, tremoloRate: 5.2, tremoloDepth: 0.4, chorusWet: 0.2, cutoffMax: 9000, filterDefault: 0.75, trimDb: -1 },
+  musicbox: { engine: 'fm', harmonicity: 7, modIndex: 2.4, modWave: 'sine', attack: 0.002, decay: 1.6, sustain: 0.02, release: 1.8, modDecay: 0.25, modSustain: 0, tremoloRate: 2, tremoloDepth: 0.05, chorusWet: 0.25, cutoffMax: 12000, filterDefault: 0.85, trimDb: 2.5 },
+  // ---- subtractive engine (long releases: notes ring out instead of stopping dead)
+  felt: { engine: 'sub', subWave: 'triangle', attack: 0.004, decay: 1.9, sustain: 0.04, release: 1.5, envBaseHz: 260, envOctaves: 2.6, envDecay: 0.35, envSustain: 0.12, subQ: 1, tremoloRate: 1, tremoloDepth: 0.02, chorusWet: 0.12, cutoffMax: 3200, filterDefault: 0.6, trimDb: -3.5 },
+  organ: { engine: 'sub', subWave: 'fattriangle', attack: 0.015, decay: 0.4, sustain: 0.9, release: 0.9, envBaseHz: 1600, envOctaves: 0.3, envDecay: 0.5, envSustain: 1, subQ: 0.7, tremoloRate: 6.4, tremoloDepth: 0.35, chorusWet: 0.5, cutoffMax: 6000, filterDefault: 0.7, trimDb: -7 },
+  dusty: { engine: 'sub', subWave: 'sawtooth', attack: 0.003, decay: 1.9, sustain: 0.05, release: 1.4, envBaseHz: 200, envOctaves: 3, envDecay: 0.3, envSustain: 0.14, subQ: 2, tremoloRate: 2.5, tremoloDepth: 0.08, chorusWet: 0.3, cutoffMax: 2600, filterDefault: 0.6, trimDb: -1 },
+  juno: { engine: 'sub', subWave: 'fatsawtooth', attack: 0.02, decay: 2.2, sustain: 0.5, release: 2.2, envBaseHz: 380, envOctaves: 2.6, envDecay: 0.7, envSustain: 0.35, subQ: 3, tremoloRate: 0.8, tremoloDepth: 0.05, chorusWet: 0.75, cutoffMax: 6000, filterDefault: 0.65, trimDb: -4 },
+  clav: { engine: 'sub', subWave: 'square', attack: 0.001, decay: 0.5, sustain: 0.03, release: 0.6, envBaseHz: 500, envOctaves: 4, envDecay: 0.12, envSustain: 0.08, subQ: 6, tremoloRate: 4, tremoloDepth: 0.02, chorusWet: 0.12, cutoffMax: 9000, filterDefault: 0.8, trimDb: -4 },
+  guitar: { engine: 'sub', subWave: 'fatsawtooth', attack: 0.002, decay: 1, sustain: 0.03, release: 0.9, envBaseHz: 320, envOctaves: 3.5, envDecay: 0.2, envSustain: 0.08, subQ: 1.5, tremoloRate: 3, tremoloDepth: 0.04, chorusWet: 0.25, cutoffMax: 4500, filterDefault: 0.7, trimDb: 7 },
 };
 
 export const PAD_PATCHES: Record<PadPatchId, Patch<PadPreset>> = {

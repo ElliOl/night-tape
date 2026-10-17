@@ -44,7 +44,7 @@ export async function renderOffline(
       onNote: (ev, time, dur) => graph.trigger(ev.layer, ev.midi, dur, time, ev.vel),
       onAutomation: (ev, time, ramp) => graph.automate(ev.target, ev.value, time, ramp),
       onTempo: (bpm, time, ramp) => graph.setTempo(bpm, time, ramp),
-      onPatch: (ev) => graph.applyPalette(ev.palette, 0),
+      onPatch: (ev, time) => graph.applyPalette(ev.palette, 0, time),
     };
     const transport = ctx.transport;
     transport.bpm.value = bpm0;

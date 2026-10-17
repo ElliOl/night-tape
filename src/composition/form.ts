@@ -50,6 +50,8 @@ export interface SongStyle {
   soloist: Soloist;
   /** melody register shift in semitones */
   melodyOctave: number;
+  /** keys register shift in semitones (music box and bells sit up high) */
+  keysShift: number;
   /** pad re-strikes on every half bar instead of holding */
   padPulse: boolean;
 }
@@ -117,6 +119,13 @@ export function songTitle(rng: Rng): string {
 const wpick = <T extends string>(rng: Rng, w: Weights<T>): T => weightedPick(rng, w);
 
 export function pickStyle(rng: Rng, mood: MoodConfig): SongStyle {
+  const style = pickStyleBase(rng, mood);
+  const k = style.palette.keys;
+  style.keysShift = k === 'musicbox' ? 12 : (k === 'vibes' || k === 'felt') && chance(rng, 0.3) ? 12 : 0;
+  return style;
+}
+
+function pickStyleBase(rng: Rng, mood: MoodConfig): SongStyle {
   const drumFamily = wpick(rng, mood.drumFamilies);
   let drums = wpick(rng, mood.kits);
   // some grooves only make sense on a matching kit
@@ -135,6 +144,7 @@ export function pickStyle(rng: Rng, mood: MoodConfig): SongStyle {
       drums,
       // every song retunes its kit, so even the same kit never sounds quite the same
       drumTune: int(rng, -4, 4),
+      keysColor: rng.next(),
     },
     voicing: wpick(rng, mood.voicings),
     comps,
@@ -145,6 +155,7 @@ export function pickStyle(rng: Rng, mood: MoodConfig): SongStyle {
     // low, warm voices sit down an octave, bells and whistles up
     melodyOctave: melody === 'trumpet' || melody === 'guitar' ? -12 : melody === 'whistle' || melody === 'kalimba' ? (chance(rng, 0.5) ? 12 : 0) : 0,
     padPulse: chance(rng, mood.ambient ? 0.1 : 0.3),
+    keysShift: 0,
   };
 }
 

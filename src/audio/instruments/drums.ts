@@ -186,20 +186,20 @@ export class DrumsInstrument implements Instrument {
     // drums have no automation target
   }
 
-  setPatch(patch: string, rampSeconds: number, tune = 0): void {
+  setPatch(patch: string, rampSeconds: number, tune = 0, at?: number): void {
     if (!(patch in KITS)) return;
     if (patch === this.kit && tune === this.tune) return;
     this.kit = patch as KitId;
     this.tune = Number.isFinite(tune) ? Math.max(-12, Math.min(12, tune)) : 0;
-    this.setPreset(this.mood, rampSeconds);
+    this.setPreset(this.mood, rampSeconds, false, at);
   }
 
-  setPreset(mood: MoodId, rampSeconds: number): void {
+  setPreset(mood: MoodId, rampSeconds: number, _resetAutomation = false, at?: number): void {
     this.mood = mood;
     const p = this.resolve();
     const prev = this.preset;
     this.preset = p;
-    const now = Tone.now();
+    const now = at ?? Tone.now();
     rampParam(this.output.gain, dbToGain(p.levelDb), now, rampSeconds);
     rampParam(this.ceiling.frequency, safeCutoff(p.ceilingHz), now, rampSeconds);
     rampParam(this.kick.volume, p.kickDb, now, rampSeconds);

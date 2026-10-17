@@ -58,18 +58,18 @@ export class PadInstrument implements Instrument {
     return withPatch(getPreset(this.mood).pad, PAD_PATCHES[this.patch]);
   }
 
-  setPatch(patch: string, rampSeconds: number): void {
+  setPatch(patch: string, rampSeconds: number, _variant?: number, at?: number): void {
     if (!(patch in PAD_PATCHES) || patch === this.patch) return;
     this.patch = patch as PadPatchId;
-    this.setPreset(this.mood, rampSeconds);
+    this.setPreset(this.mood, rampSeconds, false, at);
   }
 
-  setPreset(mood: MoodId, rampSeconds: number, resetAutomation = false): void {
+  setPreset(mood: MoodId, rampSeconds: number, resetAutomation = false, at?: number): void {
     this.mood = mood;
     const p = this.resolve();
     const waveChanged = p.wave !== this.preset.wave;
     this.preset = p;
-    const now = Tone.now();
+    const now = at ?? Tone.now();
     if (resetAutomation) this.automated = false;
     if (!this.automated) this.filterPos = p.filterDefault;
     // a new oscillator type re-creates the oscillators, so only send it when it actually changed

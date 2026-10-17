@@ -81,18 +81,18 @@ export class MelodyInstrument implements Instrument {
     return withPatch(getPreset(this.mood).melody, LEAD_PATCHES[this.patch]);
   }
 
-  setPatch(patch: string, rampSeconds: number): void {
+  setPatch(patch: string, rampSeconds: number, _variant?: number, at?: number): void {
     if (!(patch in LEAD_PATCHES) || patch === this.patch) return;
     this.patch = patch as LeadPatchId;
-    this.setPreset(this.mood, rampSeconds);
+    this.setPreset(this.mood, rampSeconds, false, at);
   }
 
-  setPreset(mood: MoodId, rampSeconds: number, resetAutomation = false): void {
+  setPreset(mood: MoodId, rampSeconds: number, resetAutomation = false, at?: number): void {
     this.mood = mood;
     const p = this.resolve();
     const waveChanged = p.softWave !== this.preset.softWave;
     this.preset = p;
-    const now = Tone.now();
+    const now = at ?? Tone.now();
     if (resetAutomation) this.automated = false;
     if (!this.automated) this.filterPos = p.filterDefault;
     this.bell.set(this.bellOptions(p));

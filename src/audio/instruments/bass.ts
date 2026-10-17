@@ -52,18 +52,18 @@ export class BassInstrument implements Instrument {
     return withPatch(getPreset(this.mood).bass, BASS_PATCHES[this.patch]);
   }
 
-  setPatch(patch: string, rampSeconds: number): void {
+  setPatch(patch: string, rampSeconds: number, _variant?: number, at?: number): void {
     if (!(patch in BASS_PATCHES) || patch === this.patch) return;
     this.patch = patch as BassPatchId;
-    this.setPreset(this.mood, rampSeconds);
+    this.setPreset(this.mood, rampSeconds, false, at);
   }
 
-  setPreset(mood: MoodId, rampSeconds: number, resetAutomation = false): void {
+  setPreset(mood: MoodId, rampSeconds: number, resetAutomation = false, at?: number): void {
     this.mood = mood;
     const p = this.resolve();
     const prev = this.preset;
     this.preset = p;
-    const now = Tone.now();
+    const now = at ?? Tone.now();
     if (resetAutomation) this.automated = false;
     if (!this.automated) this.filterPos = p.filterDefault;
     if (p.wave !== prev.wave) this.synth.oscillator.type = p.wave;

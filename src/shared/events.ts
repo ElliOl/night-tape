@@ -72,7 +72,9 @@ export interface AutomationEvent {
 // sound palettes: every song picks its own instruments (ids are renderer patches)
 // ---------------------------------------------------------------------------------------------
 
-export type KeysPatchId = 'rhodes' | 'wurli' | 'felt' | 'organ' | 'vibes' | 'dusty';
+export type KeysPatchId =
+  | 'rhodes' | 'wurli' | 'felt' | 'organ' | 'vibes' | 'dusty'
+  | 'juno' | 'clav' | 'guitar' | 'musicbox';
 export type PadPatchId = 'warm' | 'strings' | 'glass' | 'hollow' | 'tape';
 export type BassPatchId = 'round' | 'upright' | 'muted' | 'square' | 'fingered';
 export type LeadPatchId = 'flute' | 'kalimba' | 'vibes' | 'trumpet' | 'whistle' | 'guitar' | 'synth';
@@ -86,6 +88,8 @@ export interface SoundPalette {
   drums: KitId;
   /** kit tuning in semitones (every song retunes its drums) */
   drumTune: number;
+  /** 0..1 per-song colour of the keys (brightness, tremolo, chorus) */
+  keysColor: number;
 }
 
 /** Switches instrument patches (sent at the start of every song). */
