@@ -110,8 +110,12 @@ kbd {
 .panel--station { grid-column: span 5; }
 .panel--groove { grid-column: span 7; }
 .panel--filter { grid-column: span 3; }
-.panel--tape { grid-column: span 4; }
-.panel--chaos { grid-column: span 5; }
+.panel--tape { grid-column: span 3; }
+/* the Cat panel is always as wide as two of its neighbours */
+.panel--chaos { grid-column: span 6; }
+/* four tape knobs fit a narrow column */
+.panel--tape .knobs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 4px; }
+.panel--tape .knob { width: auto; }
 .panel--mixer { grid-column: span 7; }
 .panel--info { grid-column: span 5; }
 
@@ -435,7 +439,7 @@ kbd {
 /* ---------------------------------------------------------------- responsive */
 @media (max-width: 1000px) {
   .panel--station, .panel--groove, .panel--info, .panel--tape, .panel--mixer, .panel--filter, .panel--chaos { grid-column: span 6; }
-  .panel--mixer { grid-column: span 12; }
+  .panel--chaos, .panel--mixer, .panel--info { grid-column: span 12; }
 }
 @media (max-width: 720px) {
   .app { padding: 14px 16px 22px; }
