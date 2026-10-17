@@ -135,10 +135,11 @@ export function startWildCat(deps: WildDeps): { stop(): void } {
 
   const timer = setInterval(() => {
     const st = useStore.getState();
-    const active = st.chaos.wild && st.playing && !st.busy && st.chaos.wildness > 0.01;
+    const wild = st.chaos.wildness > 0.01;
+    const active = wild && st.playing && !st.busy;
     if (!active) {
-      // switched off, paused or a new tape: everything the cat did is undone
-      if (wasActive && (!st.chaos.wild || st.busy)) cancelAll();
+      // turned to 0, or a new tape: everything the cat did is undone
+      if (wasActive && (!wild || st.busy)) cancelAll();
       if (wasActive && !st.playing) {
         // paused: let pending audio actions stand, just bring the cat home
         emit(null);

@@ -206,12 +206,12 @@ export function ChaosPanel() {
             <Knob label="Amount" value={chaos.amount} defaultValue={DEFAULT_CHAOS.amount} onChange={onAmount} title="How far it pushes the knobs (0 = off)" />
             <Knob label="Rate" value={chaos.rate} defaultValue={DEFAULT_CHAOS.rate} onChange={onRate} title="Slow drift to restless" />
             <Knob
-              label="Wild"
+              label="Wild cat"
               value={chaos.wildness}
               defaultValue={DEFAULT_CHAOS.wildness}
               onChange={onWildness}
-              disabled={!chaos.wild}
-              title="How wild: 100% follows every swing of the LFO, lower only the big ones"
+              display={chaos.wildness > 0.01 ? `${Math.round(chaos.wildness * 100)}%` : 'off'}
+              title="Wild cat: the cat leaves the scope and plays with mutes, stations and acid. 0 = off, 100% follows every swing of the LFO"
             />
           </div>
           <div className="chaos__targets">
@@ -228,16 +228,6 @@ export function ChaosPanel() {
                 {g.label}
               </button>
             ))}
-            <button
-              type="button"
-              title="The cat leaves the scope and plays with mutes, stations and an acid filter, in time with the music"
-              aria-pressed={chaos.wild}
-              className={`chip chip--wild${chaos.wild ? ' is-active' : ''}`}
-              onClick={() => setChaos({ wild: !chaos.wild })}
-            >
-              <span className="chip__led" aria-hidden="true" />
-              Wild cat
-            </button>
           </div>
         </div>
       </div>

@@ -68,8 +68,8 @@ export function sanitizeChaos(raw: unknown): ChaosParams {
     filter: bool(raw.filter, f.filter),
     tape: bool(raw.tape, f.tape),
     groove: bool(raw.groove, f.groove),
-    wild: bool(raw.wild, f.wild),
-    wildness: unit(raw.wildness, f.wildness),
+    // older saves had an on/off switch: "off" means wildness 0
+    wildness: raw.wild === false ? 0 : unit(raw.wildness, f.wildness),
   };
 }
 
