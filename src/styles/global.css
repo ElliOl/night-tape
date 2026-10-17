@@ -472,6 +472,12 @@ kbd {
   75% { transform: translate(-1px, 0) rotate(-1.5deg); }
   100% { transform: translate(0, 0) rotate(0); }
 }
+/* acid: the cat twists the cutoff knob back and forth, one swing per 16th (`rotate` stacks on the cap's own transform) */
+.cat-wiggle .knob__cap { animation: cat-wiggle var(--wiggle-ms, 180ms) ease-in-out infinite alternate; }
+@keyframes cat-wiggle {
+  from { rotate: -16deg; }
+  to { rotate: 16deg; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .cat-swat { animation: none; }
+  .cat-swat, .cat-wiggle .knob__cap { animation: none; }
 }

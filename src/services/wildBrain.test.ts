@@ -68,6 +68,32 @@ describe('wild cat brain', () => {
     for (let i = 1; i < layers.length; i++) expect(layers[i]).not.toBe(layers[i - 1]);
   });
 
+  it('commits: even fully wild it rests a few bars after a move ends before the next one', () => {
+    const b = new WildBrain();
+    const plans: Array<{ bar: number; end: number }> = [];
+    for (let bar = 0; bar < 300; bar++) {
+      const d = Math.sin(bar * 1.3) * 0.9;
+      const p = b.onBar(base({ bar, sectionName: 'Theme', amount: 1, deriv: [d, -d, 0.3] }));
+      if (p?.kind === 'mute') plans.push({ bar, end: p.toBeat / 4 });
+    }
+    expect(plans.length).toBeGreaterThan(3);
+    for (let i = 1; i < plans.length; i++) expect(plans[i]!.bar + 1 - plans[i - 1]!.end).toBeGreaterThanOrEqual(4);
+  });
+
+  it('naps on a soft layer for 4-8 bars when the attractor gets sleepy', () => {
+    const b = new WildBrain();
+    let nap = null;
+    for (let bar = 0; bar < 64 && !nap; bar++) {
+      const p = b.onBar(base({ bar, sectionName: 'Float', amount: 1, state: [0.1, -0.7, 0.4], deriv: [0.3, -0.5, 0.2] }));
+      if (p?.kind === 'mute' && p.reason === 'nap') nap = p;
+    }
+    expect(nap).not.toBeNull();
+    expect(['pad', 'keys', 'melody']).toContain(nap!.layers[0]);
+    const bars = (nap!.toBeat - nap!.fromBeat) / 4;
+    expect(bars).toBeGreaterThanOrEqual(4);
+    expect(bars).toBeLessThanOrEqual(8);
+  });
+
   it('plays acid at most once per song', () => {
     const b = new WildBrain();
     let acids = 0;

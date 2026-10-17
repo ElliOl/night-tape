@@ -5,8 +5,12 @@
  * Nothing here is dice-rolled: the cat acts when the attractor "lurches" (a large derivative), and *what* it does is
  * read from the direction of that lurch and from where we are in the arrangement, so its moves land musically:
  *  - drop:     drums (and maybe bass) out for the bar before a new section, back on its downbeat
- *  - breathe:  keys (or bass / pad) out for a phrase-sized moment
- *  - stop:     one bar of stop-time drums in a solo
+ *  - breathe:  keys (or bass / pad) out for a phrase-sized moment (2-4 bars)
+ *  - stop:     a bar or two of stop-time drums in a solo
+ *  - nap:      the cat lies down on a soft layer's mute and dozes off: that layer is out for 4-8 bars
+ *
+ * The cat commits: after a move it rests for a few bars counted from when the move *ends*, so even fully wild it never
+ * hops from control to control.
  *  - acid:     2-4 bars of 303-style filter squelch, at most once per song, from a 4-bar boundary
  *  - station:  after a few songs, a new station, decided as the current song reaches its outro
  */
@@ -29,14 +33,18 @@ export interface BarInfo {
 }
 
 export type WildPlan =
-  | { kind: 'mute'; layers: LayerId[]; fromBeat: number; toBeat: number; reason: 'drop' | 'breathe' | 'stop' }
+  | { kind: 'mute'; layers: LayerId[]; fromBeat: number; toBeat: number; reason: 'drop' | 'breathe' | 'stop' | 'nap' }
   | { kind: 'acid'; fromBeat: number; bars: number; accents: boolean[]; intensity: number }
   | { kind: 'station'; mood: MoodId; atBeat: number };
 
 const GROOVY = new Set(['Groove', 'Theme', 'Solo', 'Tide', 'Float', 'Bridge']);
 const FINAL = new Set(['Outro', 'Dusk']);
 
+/** sections where a cat nap on the pad / keys / lead fits */
+const DOZY = new Set(['Theme', 'Float', 'Tide', 'Bridge', 'Groove']);
+
 export class WildBrain {
+  /** bar at which the last move ends; the rest is counted from here */
   private lastActionBar = -1000;
   private lastSong = -1;
   private songsSinceStation = 0;
@@ -73,13 +81,14 @@ export class WildBrain {
     const lurch = Math.max(Math.abs(deriv[0]), Math.abs(deriv[1]), Math.abs(deriv[2]));
     // at full wildness the cat answers almost every lurch of the attractor (1:1); turned down it needs big ones
     const threshold = 0.1 + 0.75 * (1 - amount);
-    // bars between moves: 2 when fully wild, up to 12 when tame
-    const cooldown = Math.round(2 + 10 * (1 - amount));
+    // bars of rest after a move ends: 4 when fully wild, up to 14 when tame
+    const cooldown = Math.round(4 + 10 * (1 - amount));
     const rested = bar - this.lastActionBar >= cooldown;
     const next = (bar + 1) * 4; // the cat always acts from the next downbeat
     const section = info.sectionName;
     const plan = (p: WildPlan): WildPlan => {
-      this.lastActionBar = bar;
+      const endBeat = p.kind === 'station' ? p.atBeat : p.kind === 'acid' ? p.fromBeat + p.bars * 4 : p.toBeat;
+      this.lastActionBar = Math.max(bar, Math.ceil(endBeat / 4) - 1);
       return p;
     };
 
@@ -124,15 +133,30 @@ export class WildBrain {
       return plan({ kind: 'acid', fromBeat: next, bars: Math.min(bars, fit), accents, intensity: 0.4 + 0.6 * amount });
     }
 
-    // ---- breathe / stop: phrase-sized mutes chosen by the arrangement and the lurch direction
     if (!phraseStart) return null;
+    // a longer commitment the wilder the cat: phrase lengths scale 1x .. 2x
+    const stretch = (bars: number): number => Math.max(1, Math.round(bars * (1 + amount * (state[2] > 0 ? 1 : 0.5))));
+
+    // ---- nap: when the attractor drifts into its sleepy corner the cat lies down on a soft layer's mute and dozes
+    if (DOZY.has(section) && state[1] < -0.35 && deriv[1] < 0) {
+      const soft: LayerId[] = ['pad', 'keys', 'melody'];
+      const layer = soft.filter((l) => l !== this.lastMute)[Math.min(1, Math.floor(((state[0] + 1) / 2) * 2))]!;
+      const bars = 4 + Math.round(((state[2] + 1) / 2) * 4);
+      const to = until(bars);
+      if (to - next >= 12) {
+        this.lastMute = layer;
+        return plan({ kind: 'mute', layers: [layer], fromBeat: next, toBeat: to, reason: 'nap' });
+      }
+    }
+
+    // ---- breathe / stop: phrase-sized mutes chosen by the arrangement and the lurch direction
     type Move = [layer: LayerId, bars: number, reason: 'breathe' | 'stop'];
     // [preferred, alternative] per section; the lurch direction picks one, the alternative avoids repeating the last move
     const choose = (up: boolean, a: Move, b: Move): WildPlan | null => {
       let [layer, bars, reason] = up ? a : b;
       if (layer === this.lastMute) [layer, bars, reason] = up ? b : a;
       if (layer === this.lastMute) return null;
-      const to = until(bars);
+      const to = until(stretch(bars));
       if (to <= next) return null;
       this.lastMute = layer;
       return plan({ kind: 'mute', layers: [layer], fromBeat: next, toBeat: to, reason });

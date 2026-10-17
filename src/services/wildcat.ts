@@ -34,6 +34,10 @@ export interface Excursion {
   label?: string;
   /** shown when it swats again at the end (undoing a mute / letting go of the filter) */
   endLabel?: string;
+  /** acid: the cat works the knob the whole time, one push per 16th (harder on accents) */
+  wiggle?: { stepMs: number; accents: readonly boolean[] };
+  /** the cat curls up on the control and sleeps until holdUntil */
+  doze?: boolean;
 }
 
 type Listener = (e: Excursion | null) => void;
@@ -143,8 +147,9 @@ export function startWildCat(deps: WildDeps): { stop(): void } {
           target: `[data-cat-target="mute-${plan.layers[0]}"]`,
           landAt: msAt(plan.fromBeat),
           holdUntil: msAt(plan.toBeat),
-          label: `${plan.layers.map((l) => LAYER_NAME[l]).join(' + ')} off`,
-          endLabel: 'back in!',
+          label: plan.reason === 'nap' ? 'zzz…' : `${plan.layers.map((l) => LAYER_NAME[l]).join(' + ')} off`,
+          endLabel: plan.reason === 'nap' ? `*yawn* ${LAYER_NAME[plan.layers[0]!]} back` : 'back in!',
+          doze: plan.reason === 'nap',
         };
         break;
       }
@@ -155,6 +160,7 @@ export function startWildCat(deps: WildDeps): { stop(): void } {
           landAt: msAt(plan.fromBeat),
           holdUntil: msAt(plan.fromBeat + plan.bars * 4),
           label: 'acid!',
+          wiggle: { stepMs: (60 / tempo) * 250, accents: plan.accents },
         };
         break;
       }
