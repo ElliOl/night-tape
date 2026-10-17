@@ -1,4 +1,4 @@
-import { memo, useCallback, useId, useRef, type KeyboardEvent, type PointerEvent, type WheelEvent } from 'react';
+import { memo, useCallback, useId, useRef, type DragEvent, type KeyboardEvent, type PointerEvent, type WheelEvent } from 'react';
 
 interface KnobProps {
   label: string;
@@ -24,26 +24,41 @@ const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
  */
 function KnobImpl({ label, value, onChange, display, defaultValue, size = 'sm', disabled, title, mod }: KnobProps) {
   const id = useId();
-  const drag = useRef<{ y: number; v: number } | null>(null);
+  const drag = useRef<{ y: number; v: number; id: number } | null>(null);
+  const dialRef = useRef<HTMLDivElement>(null);
   const shown = display ?? `${Math.round(value * 100)}%`;
   const angle = -SWEEP / 2 + value * SWEEP;
 
   const set = useCallback((v: number) => onChange(Math.round(clamp01(v) * 1000) / 1000), [onChange]);
 
+  // The whole knob (dial, label, value) is the drag handle. preventDefault on pointerdown stops the browser from
+  // selecting text or starting a native drag-and-drop (the "not allowed" cursor), which used to cancel the gesture.
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (disabled) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    e.currentTarget.focus({ preventScroll: true });
-    drag.current = { y: e.clientY, v: value };
+    if (disabled || e.button !== 0) return;
+    e.preventDefault();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // capture is best effort (e.g. synthetic events)
+    }
+    dialRef.current?.focus({ preventScroll: true });
+    drag.current = { y: e.clientY, v: value, id: e.pointerId };
   };
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (!drag.current) return;
+    const d = drag.current;
+    if (!d || d.id !== e.pointerId) return;
+    // released outside the window without a pointerup: stop following
+    if (e.buttons === 0 && e.pointerType === 'mouse') {
+      drag.current = null;
+      return;
+    }
     const fine = e.shiftKey ? 0.25 : 1;
-    set(drag.current.v + ((drag.current.y - e.clientY) / 180) * fine);
+    set(d.v + ((d.y - e.clientY) / 180) * fine);
   };
   const onPointerUp = () => {
     drag.current = null;
   };
+  const noNativeDrag = (e: DragEvent<HTMLDivElement>) => e.preventDefault();
   const onWheel = (e: WheelEvent<HTMLDivElement>) => {
     if (disabled || document.activeElement !== e.currentTarget) return;
     set(value - Math.sign(e.deltaY) * 0.02);
@@ -65,8 +80,19 @@ function KnobImpl({ label, value, onChange, display, defaultValue, size = 'sm', 
   };
 
   return (
-    <div className={`knob knob--${size}${disabled ? ' is-disabled' : ''}`} title={title}>
+    <div
+      className={`knob knob--${size}${disabled ? ' is-disabled' : ''}`}
+      title={title}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onLostPointerCapture={onPointerUp}
+      onDragStart={noNativeDrag}
+      onDoubleClick={() => defaultValue !== undefined && !disabled && set(defaultValue)}
+    >
       <div
+        ref={dialRef}
         className="knob__dial"
         role="slider"
         tabIndex={disabled ? -1 : 0}
@@ -76,13 +102,8 @@ function KnobImpl({ label, value, onChange, display, defaultValue, size = 'sm', 
         aria-valuenow={Math.round(value * 100)}
         aria-valuetext={shown}
         aria-disabled={disabled || undefined}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
         onWheel={onWheel}
         onKeyDown={onKeyDown}
-        onDoubleClick={() => defaultValue !== undefined && !disabled && set(defaultValue)}
       >
         <svg viewBox="0 0 64 64" aria-hidden="true">
           <circle className="knob__track" cx="32" cy="32" r="27" pathLength={360} strokeDasharray={`${SWEEP} 360`} transform="rotate(135 32 32)" />
