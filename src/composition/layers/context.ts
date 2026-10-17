@@ -68,6 +68,9 @@ export function layerOn(ctx: BarContext, layer: LayerId): boolean {
 // groove
 // ---------------------------------------------------------------------------------------------
 
+/** Live swing control shifted by the song's own feel (straighter two-steps, drunker Dilla grooves). */
+export const songSwing = (ctx: BarContext): number => clamp01(ctx.params.swing + style(ctx).swingOffset);
+
 /** Swing ratio of a 16th pair: 0.5 straight .. 0.84 (hard shuffle). */
 export const swingRatio = (swing: number): number => 0.5 + 0.34 * clamp01(swing);
 

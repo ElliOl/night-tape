@@ -6,6 +6,7 @@ import { QUALITY_INTERVALS, mod12 } from '../theory';
 import {
   barStart, chordChangesNext, drift, energy, humanize, isChordStartBar, isSongLastBar, nextSlot, note, slot, step16, style,
   type BarContext,
+  songSwing,
 } from './context';
 
 function sectionBass(ctx: BarContext): BassStyle {
@@ -29,7 +30,7 @@ export function renderBass(ctx: BarContext): NoteEvent[] {
   const cur = slot(ctx);
   const root = cur.bass;
   const start = barStart(ctx);
-  const swing = ctx.params.swing;
+  const swing = songSwing(ctx);
   const e = energy(ctx);
   let bassStyle = sectionBass(ctx);
   if (e < 0.22 && bassStyle !== 'held') bassStyle = 'dub';

@@ -341,6 +341,9 @@ export const KEYS_PATCHES: Record<KeysPatchId, Patch<KeysPreset>> = {
   rhodes: { engine: 'fm', harmonicity: 1, modIndex: 3.2, modWave: 'sine', attack: 0.004, decay: 2.2, sustain: 0.18, release: 1.1, modDecay: 0.35, modSustain: 0.12, tremoloRate: 3.6, tremoloDepth: 0.28, chorusWet: 0.3, cutoffMax: 7000, filterDefault: 0.72 },
   wurli: { engine: 'fm', harmonicity: 1, modIndex: 5.5, modWave: 'triangle', attack: 0.003, decay: 1.4, sustain: 0.3, release: 0.8, modDecay: 0.18, modSustain: 0.2, tremoloRate: 5.6, tremoloDepth: 0.45, chorusWet: 0.15, cutoffMax: 9000, filterDefault: 0.75, trimDb: -3 },
   vibes: { engine: 'fm', harmonicity: 4, modIndex: 1.8, modWave: 'sine', attack: 0.003, decay: 2.8, sustain: 0.05, release: 1.6, modDecay: 0.6, modSustain: 0.05, tremoloRate: 5.2, tremoloDepth: 0.4, chorusWet: 0.2, cutoffMax: 9000, filterDefault: 0.75, trimDb: -1 },
+  // hammered old upright: low-ratio FM with a fast-fading brightness and almost no sustain
+  piano: { engine: 'fm', harmonicity: 2, modIndex: 1.6, modWave: 'sine', attack: 0.002, decay: 2.6, sustain: 0.03, release: 1.2, modDecay: 0.12, modSustain: 0.02, tremoloRate: 1.5, tremoloDepth: 0.03, chorusWet: 0.12, cutoffMax: 5000, filterDefault: 0.62, trimDb: 1 },
+  celeste: { engine: 'fm', harmonicity: 4, modIndex: 1.2, modWave: 'triangle', attack: 0.002, decay: 1.2, sustain: 0.03, release: 1.4, modDecay: 0.2, modSustain: 0.02, tremoloRate: 3, tremoloDepth: 0.06, chorusWet: 0.35, cutoffMax: 9000, filterDefault: 0.75, trimDb: 0 },
   musicbox: { engine: 'fm', harmonicity: 7, modIndex: 2.4, modWave: 'sine', attack: 0.002, decay: 1.6, sustain: 0.02, release: 1.8, modDecay: 0.25, modSustain: 0, tremoloRate: 2, tremoloDepth: 0.05, chorusWet: 0.25, cutoffMax: 12000, filterDefault: 0.85, trimDb: 2.5 },
   // ---- subtractive engine (long releases: notes ring out instead of stopping dead)
   felt: { engine: 'sub', subWave: 'triangle', attack: 0.004, decay: 1.9, sustain: 0.04, release: 1.5, envBaseHz: 260, envOctaves: 2.6, envDecay: 0.35, envSustain: 0.12, subQ: 1, tremoloRate: 1, tremoloDepth: 0.02, chorusWet: 0.12, cutoffMax: 3200, filterDefault: 0.6, trimDb: -3.5 },
@@ -356,6 +359,7 @@ export const PAD_PATCHES: Record<PadPatchId, Patch<PadPreset>> = {
   strings: { wave: 'sawtooth', spread: 24, attack: 1.2, cutoffMax: 2600, filterDefault: 0.5, chorusWet: 0.6, trimDb: -4 },
   glass: { wave: 'sine', spread: 10, attack: 2.2, cutoffMax: 8000, filterDefault: 0.7, chorusWet: 0.7, trimDb: 2 },
   hollow: { wave: 'square', spread: 14, attack: 1.4, cutoffMax: 2000, filterDefault: 0.45, chorusWet: 0.4, trimDb: -6 },
+  choir: { wave: 'sine', spread: 30, attack: 2.4, cutoffMax: 2400, filterDefault: 0.5, lfoDepthCents: 300, chorusWet: 0.8, trimDb: 1 },
   tape: { wave: 'sawtooth', spread: 40, attack: 0.9, cutoffMax: 3000, filterDefault: 0.45, lfoDepthCents: 900, chorusWet: 0.55, trimDb: -5 },
 };
 
@@ -364,6 +368,7 @@ export const BASS_PATCHES: Record<BassPatchId, Patch<BassPreset>> = {
   upright: { wave: 'triangle', drive: 1.4, attack: 0.004, decay: 0.35, sustain: 0.15, release: 0.12, filterDefault: 0.55, q: 1.2, trimDb: 2 },
   muted: { wave: 'sawtooth', drive: 1.2, attack: 0.005, decay: 0.25, sustain: 0.3, release: 0.08, filterDefault: 0.22, q: 1.5, trimDb: -2 },
   square: { wave: 'square', drive: 1.1, attack: 0.006, decay: 0.5, sustain: 0.6, release: 0.15, filterDefault: 0.3, q: 1, trimDb: -5 },
+  synth: { wave: 'sawtooth', drive: 1.6, attack: 0.004, decay: 0.4, sustain: 0.45, release: 0.1, filterDefault: 0.28, q: 4, trimDb: -4 },
   fingered: { wave: 'triangle', drive: 2.6, attack: 0.006, decay: 0.6, sustain: 0.5, release: 0.15, filterDefault: 0.6, q: 1 },
 };
 
@@ -374,6 +379,9 @@ export const LEAD_PATCHES: Record<LeadPatchId, Patch<MelodyPreset>> = {
   trumpet: { bell: 0, softWave: 'sawtooth', attack: 0.05, release: 0.3, vibratoRate: 5.2, vibratoDepth: 0.12, filterDefault: 0.32, trimDb: -5 },
   whistle: { bell: 0, softWave: 'sine', attack: 0.03, release: 0.4, vibratoRate: 6, vibratoDepth: 0.25, filterDefault: 0.85, trimDb: -2 },
   guitar: { bell: 0.85, bellHarmonicity: 1, bellModIndex: 3, bellDecay: 0.45, release: 0.4, vibratoRate: 4.5, vibratoDepth: 0.04, filterDefault: 0.45 },
+  sax: { bell: 0, softWave: 'sawtooth', attack: 0.07, release: 0.35, vibratoRate: 4.8, vibratoDepth: 0.18, filterDefault: 0.38, trimDb: -6 },
+  nylon: { bell: 0.8, bellHarmonicity: 2, bellModIndex: 1.4, bellDecay: 0.7, release: 0.6, vibratoRate: 4, vibratoDepth: 0.02, filterDefault: 0.5, trimDb: 1 },
+  pluck: { bell: 0.6, bellHarmonicity: 1, bellModIndex: 5, bellDecay: 0.25, softWave: 'triangle', release: 0.3, vibratoDepth: 0, filterDefault: 0.5, trimDb: -2 },
   synth: { bell: 0.2, softWave: 'square', attack: 0.02, release: 0.5, vibratoRate: 5, vibratoDepth: 0.1, filterDefault: 0.4, trimDb: -7 },
 };
 

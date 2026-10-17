@@ -6,13 +6,17 @@
 import type { GenerationParams, KeySpec, LayerId, MoodId, ScaleName, SoundPalette } from '@shared/index';
 import { LAYER_IDS } from '@shared/index';
 import {
-  MOODS, type BassStyle, type CompStyle, type DrumFamily, type MoodConfig, type ProgTemplate, type Soloist, type Weights,
+  MOODS, type BassStyle, type CompStyle, type DrumFamily, type MoodConfig, type ProgStep, type ProgTemplate, type Soloist,
+  type Weights,
 } from './moods';
 import { chance, int, pick, shuffle, stream, weightedPick, type Rng } from './rng';
-import { bassRoot, colourQuality, colourSteps, isMinorScale, mod12, voiceChord, type Chord, type VoicingStyle } from './theory';
+import {
+  bassRoot, colourQuality, colourSteps, isMinorScale, mod12, voiceChord, type Chord, type ChordQuality, type VoicingStyle,
+} from './theory';
 
 export type SectionName =
   | 'Intro' | 'Groove' | 'Theme' | 'Bridge' | 'Solo' | 'Break' | 'Outro'
+  | 'Drop' | 'Hook'
   | 'Dawn' | 'Float' | 'Tide' | 'Dusk';
 
 export type Harmony = 'main' | 'bridge';
@@ -54,7 +58,15 @@ export interface SongStyle {
   keysShift: number;
   /** pad re-strikes on every half bar instead of holding */
   padPulse: boolean;
+  /** added to the live swing control: a two-step sits straighter, a Dilla groove drunker */
+  swingOffset: number;
+  /** scales the station's melody density: some songs are hook-heavy, some leave the lead mostly silent */
+  melodyAmount: number;
+  /** arrangement template the sections were built from (see ARRANGEMENTS) */
+  arrangement: Arrangement;
 }
+
+export type Arrangement = 'classic' | 'beattape' | 'aaba' | 'sketch' | 'jam' | 'coldopen' | 'ambient';
 
 interface HarmonyLoop {
   slots: ChordSlot[];
@@ -69,6 +81,8 @@ export interface SongPlan {
   lengthBars: number;
   tempo: number;
   key: KeySpec;
+  /** the station progression this song was built from (before per-song reharmonisation) */
+  baseTemplate: ProgTemplate;
   /** uncoloured templates, voiced lazily per colour level */
   template: ProgTemplate;
   bridgeTemplate: ProgTemplate;
@@ -86,30 +100,74 @@ export const songEnd = (s: SongPlan): number => s.startBar + s.lengthBars;
 // titles
 // ---------------------------------------------------------------------------------------------
 
-const ADJ = [
+export const TITLE_ADJ = [
   'faded', 'quiet', 'sleepy', 'blue', 'warm', 'soft', 'hazy', 'late', 'paper', 'velvet', 'dusty', 'slow',
   'amber', 'lonely', 'golden', 'cloudy', 'foggy', 'tiny', 'distant', 'midnight', 'secondhand', 'drowsy',
+  'mellow', 'hushed', 'dim', 'pale', 'gentle', 'woolen', 'rainy', 'misty', 'lazy', 'honey', 'cozy', 'muted',
+  'little', 'borrowed', 'forgotten', 'half-asleep', 'sunlit', 'moonlit', 'grainy', 'worn', 'crooked', 'faraway',
+  'lukewarm', 'peach', 'lavender', 'indigo', 'sepia', 'cobalt', 'mint', 'rusty', 'cotton', 'glassy', 'starry',
+  'wistful', 'patient', 'unhurried', 'tender', 'lost', 'blurry', 'washed-out', 'overcast', 'drizzly', 'snowy',
+  'humid', 'early', 'sunday', 'weekday', 'after-hours', 'off-key', 'analog', 'homemade', 'quiet-ish', 'small',
+  'yellowed', 'dog-eared', 'second-floor', 'old', 'new', 'cold', 'leftover', 'rewound', 'pastel', 'nocturnal',
 ];
-const NOUN = [
+export const TITLE_NOUN = [
   'window', 'tea', 'streetlights', 'notebook', 'radiator', 'polaroids', 'raincoat', 'bus stop', 'cassette',
   'blanket', 'balcony', 'laundromat', 'paperbacks', 'houseplants', 'neon', 'puddles', 'subway', 'letters',
   'moths', 'snowfall', 'headphones', 'rooftop', 'fireflies', 'old film',
+  'coffee', 'matcha', 'ramen', 'vending machine', 'cat nap', 'tram', 'crosswalk', 'umbrella', 'sweater',
+  'postcards', 'sketchbook', 'piano bench', 'record player', 'lamp', 'kettle', 'fog', 'drizzle', 'clouds',
+  'moonlight', 'satellites', 'paper cranes', 'cherry blossoms', 'autumn leaves', 'pinecones', 'snow globe',
+  'film camera', 'walkman', 'vhs', 'answering machine', 'payphone', 'night bus', 'ferry', 'lighthouse',
+  'alleyway', 'fire escape', 'bookshop', 'diner', 'arcade', 'train window', 'station bench', 'rain gutter',
+  'goldfish', 'sunflowers', 'mixtape', 'daydreams', 'naps', 'bedroom', 'hallway', 'attic', 'garden',
+  'stargazing', 'homework', 'library card', 'pencil shavings', 'mittens', 'scarf', 'cocoa', 'pancakes',
+  'orange peel', 'lemon cake', 'thunder', 'porch light', 'ceiling fan', 'sidewalk chalk', 'bicycle',
+  'skyline', 'convenience store', 'late bus', 'radio static', 'loose change', 'origami', 'mailbox', 'snooze button',
 ];
-const PLACE = ['the 4th floor', 'the corner store', 'home', 'the last train', '3am', 'the library', 'grandma\'s', 'the city', 'dawn'];
+const TITLE_PLACE = [
+  'the 4th floor', 'the corner store', 'home', 'the last train', '3am', 'the library', 'grandma\'s', 'the city', 'dawn',
+  'the laundromat', 'the window seat', 'the back porch', 'the rooftop', 'the night market', 'the old apartment',
+  'platform 2', 'the beach in winter', 'the coffee shop', 'the end of the line', 'the attic', 'midnight', 'dusk',
+  'the bus depot', 'the river', 'the arcade', 'the 24h diner', 'aunt may\'s', 'the observatory', 'the record shop',
+  'the park', 'the harbour', 'room 204', 'the hallway', 'the suburbs', 'nowhere in particular',
+];
+const TITLE_TIME = [
+  '2am', '3am', '4:44', '5am', '11:11', '1:17 am', 'half past three', 'sunday morning', 'monday', 'late october',
+  'early march', 'last summer', 'new year\'s eve', 'rainy season', 'first snow', 'golden hour', 'blue hour',
+  'after school', 'before dawn', 'the weekend', 'tuesday night', 'end of august',
+];
+const TITLE_VERB = [
+  'waiting for', 'thinking about', 'dreaming of', 'walking to', 'missing', 'looking for', 'drawing', 'remembering',
+  'listening to', 'falling for', 'writing to', 'counting', 'chasing', 'saving', 'humming to', 'watching',
+];
+const TITLE_SINGLE = [
+  'drift', 'nostalgia', 'lull', 'hush', 'reverie', 'solace', 'haze', 'linger', 'daydream', 'rewind', 'ember',
+  'mellow', 'afterglow', 'murmur', 'stillness', 'warmth', 'undertow', 'slumber', 'idle', 'pastel', 'retrograde',
+  'kōhī', 'yūgure', 'komorebi', 'natsukashii', 'ame', 'saudade', 'hygge', 'fernweh', 'petrichor', 'sonder',
+];
+const TITLE_TAG = ['demo', 'tape', 'b-side', 'reprise', 'loop', 'interlude', 'sketch', 'flip', 'edit', 'v2', 'take 3', 'voice memo', 'unfinished', 'outro', 'rough mix'];
+const TITLE_FEAT = ['w/ rain', 'w/ the cat', 'w/ friends', 'feat. the radiator', 'w/ no one', 'w/ you'];
+
+/** Weighted title patterns; lofi titles are lowercase, short and a little wistful. */
+const TITLE_PATTERNS: ReadonlyArray<readonly [(rng: Rng) => string, number]> = [
+  [(r) => `${pick(r, TITLE_ADJ)} ${pick(r, TITLE_NOUN)}`, 6],
+  [(r) => `${pick(r, TITLE_NOUN)} at ${pick(r, TITLE_PLACE)}`, 3],
+  [(r) => `${pick(r, TITLE_NOUN)} & ${pick(r, TITLE_NOUN)}`, 2],
+  [(r) => `${pick(r, TITLE_ADJ)} ${pick(r, TITLE_NOUN)} (${pick(r, TITLE_TAG)})`, 2],
+  [(r) => `${pick(r, TITLE_ADJ)}, ${pick(r, TITLE_ADJ)}`, 1],
+  [(r) => `${pick(r, TITLE_VERB)} ${pick(r, TITLE_NOUN)}`, 3],
+  [(r) => `${pick(r, TITLE_TIME)} ${pick(r, TITLE_NOUN)}`, 2],
+  [(r) => `${pick(r, TITLE_NOUN)}, ${pick(r, TITLE_TIME)}`, 2],
+  [(r) => `${pick(r, TITLE_SINGLE)}`, 1],
+  [(r) => `${pick(r, TITLE_SINGLE)} (${pick(r, TITLE_TAG)})`, 1],
+  [(r) => `${pick(r, TITLE_NOUN)} ${pick(r, TITLE_FEAT)}`, 1],
+  [(r) => `${pick(r, TITLE_ADJ)} ${pick(r, TITLE_NOUN)} in ${pick(r, TITLE_TIME)}`, 1],
+  [(r) => `the ${pick(r, TITLE_NOUN)} ${pick(r, ['song', 'tape', 'loop', 'waltz', 'lullaby', 'theme'])}`, 1],
+  [(r) => `${pick(r, TITLE_NOUN)} pt. ${int(r, 2, 4)}`, 1],
+];
 
 export function songTitle(rng: Rng): string {
-  switch (int(rng, 0, 4)) {
-    case 0:
-      return `${pick(rng, ADJ)} ${pick(rng, NOUN)}`;
-    case 1:
-      return `${pick(rng, NOUN)} at ${pick(rng, PLACE)}`;
-    case 2:
-      return `${pick(rng, NOUN)} & ${pick(rng, NOUN)}`;
-    case 3:
-      return `${pick(rng, ADJ)} ${pick(rng, NOUN)} (${pick(rng, ['demo', 'tape', 'b-side', 'reprise', 'loop'])})`;
-    default:
-      return `${pick(rng, ADJ)}, ${pick(rng, ADJ)}`;
-  }
+  return weightedPick(rng, TITLE_PATTERNS)(rng);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -118,26 +176,49 @@ export function songTitle(rng: Rng): string {
 
 const wpick = <T extends string>(rng: Rng, w: Weights<T>): T => weightedPick(rng, w);
 
-export function pickStyle(rng: Rng, mood: MoodConfig): SongStyle {
-  const style = pickStyleBase(rng, mood);
+/** Pick from `w`, re-drawing a few times while it repeats `avoid` (consecutive songs should sound different). */
+function wpickNot<T extends string>(rng: Rng, w: Weights<T>, avoid: T | undefined): T {
+  let out = wpick(rng, w);
+  for (let i = 0; i < 4 && avoid !== undefined && out === avoid; i++) out = wpick(rng, w);
+  return out;
+}
+
+/** Per-family swing feel [lo, hi] added to the live swing control. */
+const FAMILY_SWING: Record<DrumFamily, readonly [number, number]> = {
+  boombap: [-0.1, 0.15],
+  halftime: [0, 0.2],
+  dilla: [0.2, 0.35],
+  chopbreak: [0, 0.2],
+  brushes: [0.1, 0.25],
+  bossa: [-0.35, -0.2],
+  twostep: [-0.25, -0.1],
+  sparse: [-0.1, 0.1],
+  whisper: [-0.1, 0.1],
+};
+
+export function pickStyle(rng: Rng, mood: MoodConfig, prev?: SongStyle): SongStyle {
+  const style = pickStyleBase(rng, mood, prev);
   const k = style.palette.keys;
-  style.keysShift = k === 'musicbox' ? 12 : (k === 'vibes' || k === 'felt') && chance(rng, 0.3) ? 12 : 0;
+  style.keysShift = k === 'musicbox' || k === 'celeste' ? 12 : (k === 'vibes' || k === 'felt') && chance(rng, 0.3) ? 12 : 0;
+  const [sLo, sHi] = FAMILY_SWING[style.drumFamily];
+  style.swingOffset = sLo + rng.next() * (sHi - sLo);
+  style.melodyAmount = weightedPick(rng, [[0.55, 1], [1, 3], [1.35, 1]] as const);
   return style;
 }
 
-function pickStyleBase(rng: Rng, mood: MoodConfig): SongStyle {
-  const drumFamily = wpick(rng, mood.drumFamilies);
+function pickStyleBase(rng: Rng, mood: MoodConfig, prev?: SongStyle): SongStyle {
+  const drumFamily = wpickNot(rng, mood.drumFamilies, prev?.drumFamily);
   let drums = wpick(rng, mood.kits);
   // some grooves only make sense on a matching kit
   if (drumFamily === 'brushes') drums = chance(rng, 0.6) ? 'brushes' : 'jazz';
   else if (drumFamily === 'bossa') drums = chance(rng, 0.5) ? 'jazz' : 'tight';
   else if (drumFamily === 'whisper') drums = 'soft';
-  const melody = wpick(rng, mood.leadPatches);
+  const melody = wpickNot(rng, mood.leadPatches, prev?.palette.melody);
   const comps = shuffle(rng, mood.comps).slice(0, Math.min(mood.comps.length, int(rng, 2, 3)));
   if (drumFamily === 'bossa' && !comps.includes('bossa')) comps[0] = 'bossa';
   return {
     palette: {
-      keys: wpick(rng, mood.keysPatches),
+      keys: wpickNot(rng, mood.keysPatches, prev?.palette.keys),
       pad: wpick(rng, mood.padPatches),
       bass: wpick(rng, mood.bassPatches),
       melody,
@@ -153,9 +234,14 @@ function pickStyleBase(rng: Rng, mood: MoodConfig): SongStyle {
     laziness: drumFamily === 'dilla' ? 0.7 + rng.next() * 0.3 : rng.next() * 0.6,
     soloist: wpick(rng, mood.soloists),
     // low, warm voices sit down an octave, bells and whistles up
-    melodyOctave: melody === 'trumpet' || melody === 'guitar' ? -12 : melody === 'whistle' || melody === 'kalimba' ? (chance(rng, 0.5) ? 12 : 0) : 0,
+    melodyOctave: melody === 'trumpet' || melody === 'guitar' || melody === 'sax' || melody === 'nylon'
+      ? -12
+      : melody === 'whistle' || melody === 'kalimba' || melody === 'pluck' ? (chance(rng, 0.5) ? 12 : 0) : 0,
     padPulse: chance(rng, mood.ambient ? 0.1 : 0.3),
     keysShift: 0,
+    swingOffset: 0,
+    melodyAmount: 1,
+    arrangement: 'classic',
   };
 }
 
@@ -172,13 +258,52 @@ const KEYS_RANGE: Record<VoicingStyle, { lo: number; hi: number }> = {
   cluster: { lo: 55, hi: 75 },
 };
 
+const isMinorQuality = (q: ChordQuality): boolean => q === 'm' || q === 'm7' || q === 'm9' || q === 'm11';
+
+/**
+ * Is the progression in a minor key? Decided by its tonic chord (offset 0) wherever it sits in the loop; loops that
+ * never touch the tonic are minor when they lean on the flat-side major chords (bIII, bVI, bVII).
+ */
+export function templateIsMinor(template: ProgTemplate): boolean {
+  const tonic = template.find(([off]) => off === 0);
+  if (tonic) return isMinorQuality(tonic[1]);
+  return template.some(([off, q]) => (off === 3 || off === 8 || off === 10) && q.startsWith('maj'));
+}
+
 function pickScale(rng: Rng, mood: MoodConfig, template: ProgTemplate): ScaleName {
   // the key has to agree with the progression's tonic chord (major vs minor)
-  const q = template[0]![1];
-  const tonicMinor = q === 'm' || q.startsWith('m7') || q === 'm9' || q === 'm11';
-  const fitting = mood.scales.filter((s) => isMinorScale(s) === tonicMinor);
+  const tonicMinor = templateIsMinor(template);
+  // a major-seventh tonic rules out mixolydian (its b7 would rub against the chord in the melody)
+  const majSevenTonic = template.some(([off, q]) => off === 0 && (q === 'maj7' || q === 'maj9' || q === 'maj13' || q === 'maj9#11'));
+  const fitting = mood.scales.filter((s) => isMinorScale(s) === tonicMinor && !(majSevenTonic && s === 'mixolydian'));
   if (fitting.length) return pick(rng, fitting);
   return tonicMinor ? 'dorian' : 'ionian';
+}
+
+const DOMINANT = new Set<ChordQuality>(['7', '9', '13', '7b9', '7#9']);
+/** A sideways step in colour (not up or down the "jazz" chain): a ninth here, an eleventh there. */
+const ALT_COLOUR: Partial<Record<ChordQuality, ChordQuality>> = {
+  m7: 'm9', m9: 'm11', maj7: 'maj9', maj9: '6/9', '9': '13', '7b9': '7#9',
+};
+
+/**
+ * Per-song reharmonisation, so the same progression rarely sounds the same twice: tritone substitutions for
+ * dominants (V7 -> bII7), recoloured chords and, sometimes, an AB loop that plays the progression twice with a
+ * ii-V turnaround the second time. The tonic chord is never replaced.
+ */
+export function varyTemplate(rng: Rng, template: ProgTemplate, minor: boolean, allowDouble: boolean): ProgTemplate {
+  let steps: ProgStep[] = template.map(([off, q]): ProgStep => {
+    if (off !== 0 && DOMINANT.has(q) && chance(rng, 0.2)) return [mod12(off + 6), q === '13' ? '13' : '9'];
+    const alt = ALT_COLOUR[q];
+    if (alt && chance(rng, 0.15)) return [off, alt];
+    return [off, q];
+  });
+  const endsOnTurnaround = template[2]?.[0] === 2 && template[3]?.[0] === 7;
+  if (allowDouble && steps.length === 4 && !endsOnTurnaround && chance(rng, 0.3)) {
+    const turnaround: ProgStep[] = minor ? [[2, 'm7b5'], [7, '7b9']] : [[2, 'm9'], [7, '13']];
+    steps = [...steps, ...steps.slice(0, 2), ...turnaround];
+  }
+  return steps;
 }
 
 export function buildProgression(template: ProgTemplate, tonic: number, bars: number, complexity: number): Chord[] {
@@ -247,10 +372,83 @@ function sec(name: SectionName, bars: number, energy: number, on: LayerSet, harm
   return { name, bars, energy, layers: layers(on), harmony };
 }
 
-function planBeatSections(rng: Rng, mood: MoodConfig, loop: number, bridgeLoop: number, energy: number, soloist: Soloist): RawSection[] {
+/** How likely each arrangement is per beat station (the ambient station has its own). */
+const ARRANGEMENTS: Record<Exclude<MoodId, 'drift'>, Weights<Arrangement>> = {
+  study: [['classic', 3], ['beattape', 3], ['aaba', 2], ['sketch', 2], ['coldopen', 2], ['jam', 1]],
+  rainy: [['classic', 3], ['aaba', 2], ['beattape', 2], ['sketch', 2], ['coldopen', 1]],
+  sunday: [['classic', 3], ['aaba', 3], ['jam', 2], ['beattape', 2], ['coldopen', 1], ['sketch', 1]],
+};
+
+function planBeatSections(
+  rng: Rng, mood: MoodConfig, loop: number, bridgeLoop: number, energy: number, soloist: Soloist, arrangement: Arrangement,
+): RawSection[] {
   const pad = (): LayerId[] => (chance(rng, mood.padInGroove) ? ['pad'] : []);
   const maybe = (p: number, l: LayerId): LayerId[] => (chance(rng, p) ? [l] : []);
   const both = Math.max(loop, bridgeLoop);
+  const full: LayerId[] = ['keys', 'bass', 'drums', 'texture'];
+  const soloLayers = (): LayerId[] => [...full, ...(soloist === 'lead' ? ['melody' as LayerId] : []), ...maybe(0.3, 'pad')];
+  switch (arrangement) {
+    case 'beattape':
+      // a loop that drops in, a hook on top, the drums cut for a breakdown, then the drop again
+      return [
+        sec('Intro', fit(4, loop), 0.25, ['keys', 'texture', ...maybe(0.5, 'drums')]),
+        sec('Drop', fit(8, loop), 0.7, [...full, ...pad()]),
+        sec('Hook', fit(8, loop), 0.75, [...full, 'melody', ...pad()]),
+        sec('Break', fit(chance(rng, 0.5) ? 4 : 8, loop), 0.3, ['keys', 'pad', 'texture', ...maybe(0.5, 'melody')]),
+        sec('Drop', fit(8, loop), 0.8, [...full, ...maybe(0.5, 'melody'), ...pad()]),
+        sec('Hook', fit(8, loop), 0.75, [...full, 'melody', ...pad()]),
+        sec('Outro', fit(4, loop), 0.2, ['keys', 'texture', ...maybe(0.6, 'drums')]),
+      ];
+    case 'aaba':
+      // song form: theme, theme again with more around it, somewhere else, home
+      return [
+        sec('Intro', fit(4, loop), 0.2, ['keys', 'texture', ...maybe(0.4, 'pad')]),
+        sec('Theme', fit(8, loop), 0.6, [...full, 'melody', ...pad()]),
+        sec('Theme', fit(8, loop), 0.7, [...full, 'melody', 'pad']),
+        sec('Bridge', fit(8, both), 0.55, ['keys', 'bass', 'pad', 'texture', ...maybe(0.7, 'drums'), ...maybe(0.4, 'melody')], 'bridge'),
+        sec('Theme', fit(8, loop), 0.7, [...full, 'melody', ...pad()]),
+        sec('Outro', fit(4, loop), 0.2, ['keys', 'pad', 'texture']),
+      ];
+    case 'sketch':
+      // a 90-second beat-tape idea that never outstays its welcome
+      return [
+        sec('Intro', fit(4, loop), 0.25, ['keys', 'texture']),
+        sec('Groove', fit(8, loop), 0.55, [...full, ...pad()]),
+        sec('Theme', fit(8, loop), 0.65, [...full, 'melody', ...pad()]),
+        sec('Outro', fit(4, loop), 0.25, ['keys', 'texture', ...maybe(0.5, 'drums')]),
+      ];
+    case 'jam':
+      // the band stretches out: a long solo, a breather, another chorus
+      return [
+        sec('Intro', fit(4, loop), 0.2, ['keys', 'texture', ...maybe(0.5, 'drums')]),
+        sec('Groove', fit(8, loop), 0.55, [...full, ...pad()]),
+        sec('Theme', fit(8, loop), 0.65, [...full, 'melody', ...pad()]),
+        sec('Solo', fit(16, loop), 0.8, soloLayers()),
+        sec('Break', fit(4, loop), 0.35, ['keys', 'bass', 'texture', ...maybe(0.5, 'pad')]),
+        sec('Theme', fit(8, loop), 0.75, [...full, 'melody', ...pad()]),
+        sec('Outro', fit(4, loop), 0.2, ['keys', 'pad', 'texture']),
+      ];
+    case 'coldopen':
+      // the beat starts on its own, the sample fades in over it; ends on the drums alone
+      return [
+        sec('Intro', fit(4, loop), 0.4, ['drums', 'texture', ...maybe(0.5, 'bass')]),
+        sec('Groove', fit(8, loop), 0.6, [...full, ...pad()]),
+        sec('Theme', fit(8, loop), 0.7, [...full, 'melody', ...pad()]),
+        chance(rng, 0.5)
+          ? sec('Bridge', fit(8, both), 0.55, ['keys', 'bass', 'pad', 'texture', 'drums'], 'bridge')
+          : sec('Break', fit(4, loop), 0.3, ['keys', 'pad', 'texture', ...maybe(0.5, 'melody')]),
+        sec('Hook', fit(8, loop), 0.75, [...full, 'melody', ...pad()]),
+        sec('Outro', fit(4, loop), 0.3, ['drums', 'texture', ...maybe(0.5, 'keys')]),
+      ];
+    default:
+      return planClassicSections(rng, loop, energy, soloist, pad, maybe, both);
+  }
+}
+
+function planClassicSections(
+  rng: Rng, loop: number, energy: number, soloist: Soloist,
+  pad: () => LayerId[], maybe: (p: number, l: LayerId) => LayerId[], both: number,
+): RawSection[] {
   const out: RawSection[] = [];
   out.push(sec('Intro', fit(4, loop), 0.2, ['keys', 'texture', ...maybe(0.5, 'pad')]));
   out.push(sec('Groove', fit(8, loop), 0.5, ['keys', 'bass', 'drums', 'texture', ...pad()]));
@@ -294,28 +492,47 @@ function planAmbientSections(rng: Rng, loop: number, bridgeLoop: number, energy:
 
 const templateBars = (t: ProgTemplate, chordBars: number): number => t.length * chordBars;
 
-export function planSong(seed: number, index: number, startBar: number, params: GenerationParams, prevKey?: KeySpec): SongPlan {
+/** Pick from `items`, re-drawing a few times while it repeats `avoid`. */
+function pickNot<T>(rng: Rng, items: readonly T[], avoid: T | undefined): T {
+  let out = pick(rng, items);
+  for (let i = 0; i < 4 && avoid !== undefined && out === avoid; i++) out = pick(rng, items);
+  return out;
+}
+
+/** Plan song `index`. `prev` (the song before it) is used to keep consecutive songs clearly apart. */
+export function planSong(seed: number, index: number, startBar: number, params: GenerationParams, prev?: SongPlan): SongPlan {
   const mood = MOODS[params.mood];
   const rng = stream(seed, 'song', index, params.mood);
-  const template = pick(rng, mood.progressions);
-  const scale = pickScale(rng, mood, template);
+  const baseTemplate = pickNot(rng, mood.progressions, prev?.baseTemplate);
+  const scale = pickScale(rng, mood, baseTemplate);
+  const minor = isMinorScale(scale);
   // successive songs move by a 4th/5th or a step most of the time, like a playlist that "flows"
-  const tonic = prevKey
-    ? mod12(prevKey.tonic + weightedPick(rng, [[5, 3], [7, 3], [2, 2], [-2, 2], [3, 1], [0, 1]] as const))
+  const tonic = prev
+    ? mod12(prev.key.tonic + weightedPick(rng, [[5, 3], [7, 3], [2, 2], [-2, 2], [3, 1], [-3, 1]] as const))
     : int(rng, 0, 11);
   const key: KeySpec = { tonic, scale };
-  const chordBars = template.length <= 2 ? Math.max(2, weightedPick(rng, mood.chordBars)) * (mood.ambient ? 2 : 1) : weightedPick(rng, mood.chordBars);
-  const bridgeTemplate = pick(rng, mood.bridges);
+  const chordBars = baseTemplate.length <= 2 ? Math.max(2, weightedPick(rng, mood.chordBars)) * (mood.ambient ? 2 : 1) : weightedPick(rng, mood.chordBars);
+  const template = varyTemplate(stream(seed, 'reharm', index), baseTemplate, minor, chordBars === 1 && !mood.ambient);
+  const bridgeTemplate = varyTemplate(stream(seed, 'reharm-bridge', index), pick(rng, mood.bridges), minor, false);
   const bridgeChordBars = bridgeTemplate.length <= 2 ? (mood.ambient ? 4 : 2) : mood.ambient ? 2 : 1;
   const [tLo, tHi] = mood.tempo;
-  const tempo = int(rng, tLo, tHi);
-  const style = pickStyle(stream(seed, 'style', index, params.mood), mood);
+  // a new song should feel like a new song: at least a few BPM away from the last one
+  let tempo = int(rng, tLo, tHi);
+  for (let i = 0; i < 6 && prev && Math.abs(tempo - prev.tempo) < 5; i++) tempo = int(rng, tLo, tHi);
+  const style = pickStyle(stream(seed, 'style', index, params.mood), mood, prev?.style);
+  if (!mood.ambient) {
+    const arr = ARRANGEMENTS[params.mood as Exclude<MoodId, 'drift'>] ?? ARRANGEMENTS.study;
+    style.arrangement = weightedPick(stream(seed, 'arrangement', index), arr);
+    if (prev && style.arrangement === prev.style.arrangement) style.arrangement = weightedPick(stream(seed, 'arrangement', index, 1), arr);
+  } else {
+    style.arrangement = 'ambient';
+  }
 
   const loop = templateBars(template, chordBars);
   const bridgeLoop = templateBars(bridgeTemplate, bridgeChordBars);
   const raw = mood.ambient
     ? planAmbientSections(rng, loop, bridgeLoop, params.energy)
-    : planBeatSections(rng, mood, loop, bridgeLoop, params.energy, style.soloist);
+    : planBeatSections(rng, mood, loop, bridgeLoop, params.energy, style.soloist, style.arrangement);
   const sections: SectionPlan[] = [];
   let pos = 0;
   raw.forEach((s, i) => {
@@ -331,6 +548,7 @@ export function planSong(seed: number, index: number, startBar: number, params: 
     lengthBars: pos,
     tempo,
     key,
+    baseTemplate,
     template,
     bridgeTemplate,
     chordBars,
@@ -393,7 +611,7 @@ export class Form {
   songForBar(bar: number, params: GenerationParams): SongPlan {
     while (this.songs.length === 0 || songEnd(this.songs[this.songs.length - 1]!) <= bar) {
       const last = this.songs[this.songs.length - 1];
-      this.songs.push(planSong(this.seed, last ? last.index + 1 : 0, last ? songEnd(last) : 0, params, last?.key));
+      this.songs.push(planSong(this.seed, last ? last.index + 1 : 0, last ? songEnd(last) : 0, params, last));
       // keep memory bounded on very long sessions
       if (this.songs.length > 64) this.songs.splice(0, this.songs.length - 64);
     }

@@ -9,6 +9,7 @@ import type { CompStyle } from '../moods';
 import {
   barStart, chordChangesNext, drift, energy, humanize, isChordStartBar, isSectionLastBar, nextSlot, note, slot, step16, style,
   type BarContext,
+  songSwing,
 } from './context';
 import { renderSolo } from './solo';
 
@@ -26,6 +27,8 @@ const COMPS: Record<CompStyle, readonly Hit[]> = {
   stabs: [[0, 2], [3, 2], [6, 3], [11, 2]],
   bossa: [[0, 3], [3, 3], [8, 3], [11, 3], [14, 2]],
   pulse: [[0, 2], [4, 2], [8, 2], [12, 2]],
+  // a sampled chord chopped across pads: short stuttered slices with gaps, like an MPC flip
+  chops: [[0, 3], [3, 2], [6, 2], [10, 3], [14, 2]],
 };
 
 const NO_PUSH = new Set<CompStyle>(['whole', 'rolled', 'arp', 'pulse']);
@@ -60,7 +63,7 @@ export function renderKeys(ctx: BarContext): NoteEvent[] {
   const comp = sectionComp(ctx);
   const cur = slot(ctx);
   const start = barStart(ctx);
-  const swing = ctx.params.swing;
+  const swing = songSwing(ctx);
   const e = energy(ctx);
   const sparse = isSparse(ctx);
   const solo = isKeysSolo(ctx);
@@ -116,6 +119,8 @@ export function renderKeys(ctx: BarContext): NoteEvent[] {
 
   for (const [s, len] of hits) {
     if (pushedIn && s === 0) continue;
+    // chopped bars lose a slice or two, so the flip never loops quite the same
+    if (comp === 'chops' && s !== 0 && chance(rng, 0.2 + drift(ctx) * 0.2)) continue;
     const at = step16(s, swing);
     let endAt = Math.min(4, step16(Math.min(16, s + len), swing));
     if (s + len >= 16) endAt = 4;

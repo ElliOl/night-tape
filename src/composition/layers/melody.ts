@@ -6,7 +6,7 @@
 import type { NoteEvent } from '@shared/index';
 import { chance, int, stream, weightedPick, type Rng } from '../rng';
 import { chordPcs, clamp, melodyScale, mod12, nearestInSet } from '../theory';
-import { barStart, drift, energy, humanize, note, slot, songMood, step8, style, type BarContext } from './context';
+import { barStart, drift, energy, humanize, note, slot, songMood, songSwing, step8, style, type BarContext } from './context';
 import { renderSolo } from './solo';
 
 interface MotifNote {
@@ -84,10 +84,10 @@ export function renderMelody(ctx: BarContext): NoteEvent[] {
   const chord = slot(ctx).chord;
   const pcsChord = chordPcs(chord);
   const start = barStart(ctx);
-  const swing = ctx.params.swing;
+  const swing = songSwing(ctx);
   const vel = 0.32 + energy(ctx) * 0.5;
   // live density: "jazz" and the station decide how many motif notes are sung (doubled range)
-  const density = clamp(songMood(ctx).melodyDensity * 0.5 + (ctx.params.complexity - 0.5) * 1.1 + 0.25, 0, 1);
+  const density = clamp(songMood(ctx).melodyDensity * style(ctx).melodyAmount * 0.5 + (ctx.params.complexity - 0.5) * 1.1 + 0.25, 0, 1);
   const keep = Math.round(2 + density * (MAX_MOTIF_NOTES - 2));
   const out: NoteEvent[] = [];
 

@@ -8,6 +8,7 @@ import { chance, pick, stream, type Rng } from '../rng';
 import type { DrumFamily, HatStyle } from '../moods';
 import {
   barStart, drift, energy, humanize, inBar, isSectionLastBar, isSongLastBar, note, step16, style, swingRatio, type BarContext,
+  songSwing,
 } from './context';
 
 /** 16-step kick patterns (x = hit). */
@@ -29,6 +30,7 @@ const FAMILY_KICKS: Partial<Record<DrumFamily, readonly string[]>> = {
   bossa: ['x.....x.x.....x.'],
   sparse: ['x.........x.....', 'x.......x.......', 'x...............'],
   brushes: ['x...x...x...x...'],
+  chopbreak: ['x.x.......x..x..', 'x......x.xx.....', 'x..x...x..x.....', 'x.........x.x...', 'x.....x.x.....x.'],
 };
 
 const steps = (pattern: string): number[] => [...pattern].flatMap((c, i) => (c === 'x' ? [i] : []));
@@ -49,6 +51,7 @@ const FAMILY_HATS: Record<DrumFamily, readonly HatStyle[]> = {
   twostep: ['offbeat'],
   sparse: ['shaker', 'eighths'],
   whisper: ['shaker'],
+  chopbreak: ['sixteenths', 'eighths'],
 };
 
 function sectionGroove(ctx: BarContext): SectionGroove {
@@ -76,7 +79,7 @@ export function renderDrums(ctx: BarContext): NoteEvent[] {
   const fam = st.drumFamily;
   const g = sectionGroove(ctx);
   const e = energy(ctx);
-  const swing = ctx.params.swing;
+  const swing = songSwing(ctx);
   const v = drift(ctx);
   const rng = stream(ctx.seed, 'drumbar', ctx.bar);
   const start = barStart(ctx);
@@ -137,11 +140,17 @@ export function renderDrums(ctx: BarContext): NoteEvent[] {
       hit(4, DRUM.snare, 0.45, lag);
       hit(12, DRUM.snare, 0.5, lag);
       break;
+    case 'chopbreak':
+      // a break chopped back together: the backbeat plus a stray snare slice where the chop lands off the grid
+      hit(4, DRUM.snare, 0.85, lag);
+      hit(12, DRUM.snare, 0.9, lag);
+      if (chance(rng, 0.3 + v * 0.3)) hit(pick(rng, [7, 10, 15]), DRUM.snare, 0.5, lag);
+      break;
     default:
       hit(4, DRUM.snare, 0.85, lag);
       hit(12, DRUM.snare, 0.9, lag + 0.003);
   }
-  if ((fam === 'boombap' || fam === 'dilla' || fam === 'halftime') && e > 0.3) {
+  if ((fam === 'boombap' || fam === 'dilla' || fam === 'halftime' || fam === 'chopbreak') && e > 0.3) {
     for (const s of g.ghostSteps) if (chance(rng, 0.35 + e * 0.6)) hit(s, DRUM.snare, 0.2, lag);
   }
   // fill into the next section: soft ghost roll on the last beat
@@ -158,7 +167,7 @@ function renderHats(ctx: BarContext, g: SectionGroove, e: number, v: number, rng
   const dropHalf = ctx.inSection > 0 && chance(rng, v * 0.2);
   if (g.hats === 'ride') {
     // jazz ride: 1, 2, (2a), 3, 4, (4a) with a triplet-ish skip note
-    const skip = 0.5 + (swingRatio(ctx.params.swing) - 0.5) * 1.2 + 0.08;
+    const skip = 0.5 + (swingRatio(songSwing(ctx)) - 0.5) * 1.2 + 0.08;
     for (const b of [0, 1, 1 + skip, 2, 3, 3 + skip]) {
       if (dropHalf && b < 2) continue;
       const accent = b === 1 || b === 3 ? 0.55 : 0.4;

@@ -8,7 +8,7 @@ import type { LayerId, NoteEvent } from '@shared/index';
 import { harmonyAt } from '../form';
 import { chance, int, stream, weightedPick, type Rng } from '../rng';
 import { chordPcs, clamp, isMinorScale, melodyScale, mod12, nearestInSet } from '../theory';
-import { barStart, drift, energy, humanize, note, swingRatio, type BarContext } from './context';
+import { barStart, drift, energy, humanize, note, songSwing, swingRatio, type BarContext } from './context';
 
 interface PhraseNote {
   /** beat offset inside the 2-bar phrase (0..8) */
@@ -43,7 +43,7 @@ function makePhrase(ctx: BarContext, phraseRel: number, rng: Rng, lo: number, hi
   const e = energy(ctx);
   const density = clamp(0.25 + e * 0.5 + ctx.params.complexity * 0.4, 0, 1);
   const pitches = scalePitches(ctx, lo, hi);
-  const swing = swingRatio(ctx.params.swing);
+  const swing = swingRatio(songSwing(ctx));
   const notes: PhraseNote[] = [];
   let idx = int(rng, Math.floor(pitches.length * 0.25), Math.floor(pitches.length * 0.55));
   // contour: climb for the first part of the phrase, then come down

@@ -74,10 +74,10 @@ export interface AutomationEvent {
 
 export type KeysPatchId =
   | 'rhodes' | 'wurli' | 'felt' | 'organ' | 'vibes' | 'dusty'
-  | 'juno' | 'clav' | 'guitar' | 'musicbox';
-export type PadPatchId = 'warm' | 'strings' | 'glass' | 'hollow' | 'tape';
-export type BassPatchId = 'round' | 'upright' | 'muted' | 'square' | 'fingered';
-export type LeadPatchId = 'flute' | 'kalimba' | 'vibes' | 'trumpet' | 'whistle' | 'guitar' | 'synth';
+  | 'juno' | 'clav' | 'guitar' | 'musicbox' | 'piano' | 'celeste';
+export type PadPatchId = 'warm' | 'strings' | 'glass' | 'hollow' | 'tape' | 'choir';
+export type BassPatchId = 'round' | 'upright' | 'muted' | 'square' | 'fingered' | 'synth';
+export type LeadPatchId = 'flute' | 'kalimba' | 'vibes' | 'trumpet' | 'whistle' | 'guitar' | 'synth' | 'sax' | 'nylon' | 'pluck';
 export type KitId = 'dusty' | 'brushes' | 'tight' | 'crunchy' | 'jazz' | 'soft' | 'eight08' | 'tape';
 
 export interface SoundPalette {
