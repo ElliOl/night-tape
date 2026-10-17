@@ -1,7 +1,7 @@
 import * as Tone from 'tone';
-import type { MoodId } from '@shared/index';
+import type { LeadPatchId, MoodId } from '@shared/index';
 import { dbToGain, logMap, midiToHz } from '../mapping';
-import { getPreset, type MelodyPreset } from '../presets';
+import { LEAD_PATCHES, getPreset, withPatch, type MelodyPreset } from '../presets';
 import { rampParam, type Instrument, type InstrumentParam } from './instrument';
 
 /**
@@ -21,9 +21,12 @@ export class MelodyInstrument implements Instrument {
   private preset: MelodyPreset;
   private filterPos: number;
   private automated = false;
+  private mood: MoodId;
+  private patch: LeadPatchId = 'flute';
 
   constructor(mood: MoodId) {
-    const p = getPreset(mood).melody;
+    this.mood = mood;
+    const p = this.resolve();
     this.preset = p;
     this.filterPos = p.filterDefault;
     this.output = new Tone.Gain(dbToGain(p.levelDb));
@@ -48,14 +51,14 @@ export class MelodyInstrument implements Instrument {
       modulationIndex: p.bellModIndex,
       oscillator: { type: 'sine' },
       modulation: { type: 'sine' },
-      envelope: { attack: 0.003, decay: 1.4, sustain: 0.05, release: p.release },
+      envelope: { attack: 0.003, decay: p.bellDecay, sustain: 0.05, release: p.release },
       modulationEnvelope: { attack: 0.002, decay: 0.25, sustain: 0, release: 0.3 },
     } as Partial<Tone.FMSynthOptions>;
   }
 
   private softOptions(p: MelodyPreset): Partial<Tone.SynthOptions> {
     return {
-      oscillator: { type: 'fatsine', count: 2, spread: 8 },
+      oscillator: { type: `fat${p.softWave}`, count: 2, spread: 8 },
       envelope: { attack: p.attack + 0.04, decay: 0.4, sustain: 0.6, release: p.release },
     } as Partial<Tone.SynthOptions>;
   }
@@ -74,14 +77,27 @@ export class MelodyInstrument implements Instrument {
     rampParam(this.filter.frequency, logMap(value01, this.preset.cutoffMin, this.preset.cutoffMax), time, rampSeconds);
   }
 
+  private resolve(): MelodyPreset {
+    return withPatch(getPreset(this.mood).melody, LEAD_PATCHES[this.patch]);
+  }
+
+  setPatch(patch: string, rampSeconds: number): void {
+    if (!(patch in LEAD_PATCHES) || patch === this.patch) return;
+    this.patch = patch as LeadPatchId;
+    this.setPreset(this.mood, rampSeconds);
+  }
+
   setPreset(mood: MoodId, rampSeconds: number, resetAutomation = false): void {
-    const p = getPreset(mood).melody;
+    this.mood = mood;
+    const p = this.resolve();
+    const waveChanged = p.softWave !== this.preset.softWave;
     this.preset = p;
     const now = Tone.now();
     if (resetAutomation) this.automated = false;
     if (!this.automated) this.filterPos = p.filterDefault;
     this.bell.set(this.bellOptions(p));
-    this.soft.set({ envelope: this.softOptions(p).envelope });
+    // a new oscillator type re-creates the oscillators: only when it actually changed
+    this.soft.set(waveChanged ? this.softOptions(p) : { envelope: this.softOptions(p).envelope });
     rampParam(this.bellGain.gain, p.bell, now, rampSeconds);
     rampParam(this.softGain.gain, 1 - p.bell, now, rampSeconds);
     rampParam(this.vibrato.frequency, p.vibratoRate, now, rampSeconds);

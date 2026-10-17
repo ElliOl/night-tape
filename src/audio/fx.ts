@@ -5,10 +5,10 @@ import { rampParam } from './instruments/instrument';
 import { generateReverbIR } from './reverbIR';
 import type { MoodId } from '@shared/index';
 
-/** space 0..1 -> reverb return multiplier: 0 -> x0.1 (almost dry), 0.5 -> x1, 1 -> x2.2 */
+/** space 0..1 -> reverb return multiplier: 0 -> dry, 0.5 -> x1 (the station's own amount), 1 -> x4 (cathedral) */
 export function spaceMultiplier(space01: number): number {
   const x = clamp01(space01);
-  return x <= 0.5 ? 0.1 + 1.8 * x : 1 + 2.4 * (x - 0.5);
+  return x <= 0.5 ? 2 * x : 1 + 6 * (x - 0.5);
 }
 
 /**

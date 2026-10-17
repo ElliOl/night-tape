@@ -1,5 +1,5 @@
 import * as Tone from 'tone';
-import type { AutomationEvent, EventBatch, NoteEvent } from '@shared/index';
+import type { AutomationEvent, EventBatch, NoteEvent, PatchEvent } from '@shared/index';
 import { beatsToSeconds, clampBpm, rampBeatsToSeconds, secondsPerBeat, splitBeatToTick } from './mapping';
 
 export type TransportLike = ReturnType<typeof Tone.getTransport>;
@@ -7,6 +7,8 @@ export type TransportLike = ReturnType<typeof Tone.getTransport>;
 export interface SchedulerHost {
   onNote(ev: NoteEvent, time: number, durSeconds: number): void;
   onAutomation(ev: AutomationEvent, time: number, rampSeconds: number): void;
+  /** switch instrument patches (start of a song) */
+  onPatch(ev: PatchEvent, time: number): void;
   /** called when the tempo target changes (immediately for the first tempo, otherwise at the batch start) */
   onTempo(bpm: number, time: number, rampSeconds: number): void;
 }
@@ -29,6 +31,8 @@ const START_PREROLL = 0.05;
  */
 export class Scheduler {
   private readonly pending = new Map<number, number>(); // transport event id -> exact tick
+  /** pending tempo changes: never cancelled by cancelFrom() (their batches are not re-sent) */
+  private readonly tempoIds = new Set<number>();
   private maxBeat = 0;
   private targetBpm: number | null = null;
   private playRequested = false;
@@ -74,6 +78,7 @@ export class Scheduler {
   stopAndRewind(): void {
     for (const id of this.pending.keys()) this.transport.clear(id);
     this.pending.clear();
+    this.tempoIds.clear();
     const now = this.ctx.now();
     this.transport.stop(now);
     this.transport.cancel(0);
@@ -131,6 +136,7 @@ export class Scheduler {
     for (const ev of batch.events) {
       if (ev.kind === 'note') this.scheduleNote(ev);
       else if (ev.kind === 'automation') this.scheduleAutomation(ev);
+      else if (ev.kind === 'patch') this.scheduleAt(ev.beat, (time) => this.host.onPatch(ev, time));
       // 'section' and 'audioClip' events are ignored by the audio renderer in v1
     }
   }
@@ -179,17 +185,21 @@ export class Scheduler {
     const beat = Math.max(batch.startBeat, 0);
     const { tick } = splitBeatToTick(beat, this.ppq);
     if (this.isPast(tick)) apply(this.ctx.now());
-    else this.scheduleAt(beat, apply);
+    else {
+      const id = this.scheduleAt(beat, apply);
+      if (id !== null) this.tempoIds.add(id);
+    }
   }
 
   /** schedule fn(time) at an absolute beat; silently drops events already in the past. */
-  private scheduleAt(beat: number, fn: (time: number) => void): void {
+  private scheduleAt(beat: number, fn: (time: number) => void): number | null {
     const ppq = this.ppq;
     const { tick, fraction } = splitBeatToTick(beat, ppq);
-    if (this.isPast(tick)) return;
+    if (this.isPast(tick)) return null;
     let id = -1;
     id = this.transport.scheduleOnce((time) => {
       this.pending.delete(id);
+      this.tempoIds.delete(id);
       try {
         const spt = 60 / (this.transport.bpm.value * ppq); // seconds per tick (approx. during ramps)
         fn(time + fraction * spt);
@@ -199,6 +209,24 @@ export class Scheduler {
       }
     }, `${tick}i`) as unknown as number;
     this.pending.set(id, tick);
+    return id;
+  }
+
+  /**
+   * Cancel every pending event at or after `beat` (notes already started keep sounding). Used to re-render
+   * the near future when a control changes. Returns the number of cancelled events.
+   */
+  cancelFrom(beat: number): number {
+    const { tick } = splitBeatToTick(beat, this.ppq);
+    let n = 0;
+    for (const [id, t] of this.pending) {
+      if (t >= tick && !this.tempoIds.has(id)) {
+        this.transport.clear(id);
+        this.pending.delete(id);
+        n++;
+      }
+    }
+    return n;
   }
 
   /** Remove handles of events that can no longer fire (their tick is more than a beat behind the frontier). */
@@ -208,6 +236,7 @@ export class Scheduler {
       if (tick < limit) {
         this.transport.clear(id);
         this.pending.delete(id);
+        this.tempoIds.delete(id);
       }
     }
   }

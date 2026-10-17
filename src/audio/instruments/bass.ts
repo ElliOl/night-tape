@@ -1,7 +1,7 @@
 import * as Tone from 'tone';
-import type { MoodId } from '@shared/index';
+import type { BassPatchId, MoodId } from '@shared/index';
 import { dbToGain, logMap, midiToHz, saturationCurve } from '../mapping';
-import { getPreset, type BassPreset } from '../presets';
+import { BASS_PATCHES, getPreset, withPatch, type BassPreset } from '../presets';
 import { FAST_RELEASE, rampParam, type Instrument, type InstrumentParam } from './instrument';
 
 /** Round mono bass: triangle/sine -> gentle saturation (harmonics for small speakers) -> low-pass. */
@@ -16,9 +16,12 @@ export class BassInstrument implements Instrument {
   private filterPos: number;
   private automated = false;
   private busyUntil = 0;
+  private mood: MoodId;
+  private patch: BassPatchId = 'round';
 
   constructor(mood: MoodId) {
-    const p = getPreset(mood).bass;
+    this.mood = mood;
+    const p = this.resolve();
     this.preset = p;
     this.filterPos = p.filterDefault;
     this.output = new Tone.Gain(dbToGain(p.levelDb));
@@ -45,8 +48,19 @@ export class BassInstrument implements Instrument {
     rampParam(this.filter.frequency, logMap(value01, this.preset.cutoffMin, this.preset.cutoffMax), time, rampSeconds);
   }
 
+  private resolve(): BassPreset {
+    return withPatch(getPreset(this.mood).bass, BASS_PATCHES[this.patch]);
+  }
+
+  setPatch(patch: string, rampSeconds: number): void {
+    if (!(patch in BASS_PATCHES) || patch === this.patch) return;
+    this.patch = patch as BassPatchId;
+    this.setPreset(this.mood, rampSeconds);
+  }
+
   setPreset(mood: MoodId, rampSeconds: number, resetAutomation = false): void {
-    const p = getPreset(mood).bass;
+    this.mood = mood;
+    const p = this.resolve();
     const prev = this.preset;
     this.preset = p;
     const now = Tone.now();

@@ -1,22 +1,22 @@
 /**
  * LocalEngine: the procedural lofi composer (pure TypeScript, deterministic per seed + param sequence).
  */
-import type { EventBatch, GenerationParams, MoodId, MusicEvent, NoteEvent, SectionEvent } from '@shared/index';
+import type { EventBatch, GenerationParams, MoodId, MusicEvent, NoteEvent, PatchEvent, SectionEvent } from '@shared/index';
 import { MOOD_IDS, SCHEMA_VERSION } from '@shared/index';
 import { renderAutomation } from '../composition/automation';
 import { Form } from '../composition/form';
-import { BEATS_PER_BAR, energy, makeContext, slot, type BarContext } from '../composition/layers/context';
+import { BEATS_PER_BAR, energy, isChordStartBar, makeContext, slot, type BarContext } from '../composition/layers/context';
 import { renderBass } from '../composition/layers/bass';
 import { renderDrums } from '../composition/layers/drums';
 import { renderKeys } from '../composition/layers/keys';
 import { renderMelody } from '../composition/layers/melody';
 import { renderPad } from '../composition/layers/pad';
-import { isChordStart } from '../composition/form';
+import { DRUM_FAMILY_LABEL } from '../composition/moods';
 import { clamp, clamp01, toChordSpec } from '../composition/theory';
 import type { ComposerEngine } from './types';
 
-export const TEMPO_MIN = 50;
-export const TEMPO_MAX = 110;
+export const TEMPO_MIN = 40;
+export const TEMPO_MAX = 140;
 
 export function sanitizeParams(p: GenerationParams): GenerationParams {
   return {
@@ -52,6 +52,15 @@ export class LocalEngine implements ComposerEngine {
     return this.form.songs;
   }
 
+  /**
+   * Forget what was rendered from `bar` on, so those bars can be rendered again with new controls
+   * (the song plans stay: harmony and arrangement do not change, only how they are played).
+   */
+  rewind(bar: number): void {
+    const beat = bar * BEATS_PER_BAR;
+    for (const [k, n] of this.lastNote) if (n.beat + n.durBeats > beat - 1e-6) this.lastNote.delete(k);
+  }
+
   renderBars(fromBar: number, count: number, params: GenerationParams): EventBatch {
     const p = sanitizeParams(params);
     if (p.mood !== this.lastMood) {
@@ -73,16 +82,24 @@ export class LocalEngine implements ComposerEngine {
   }
 
   private renderBar(ctx: BarContext, out: MusicEvent[]): void {
-    if (ctx.inSection === 0 || isChordStart(ctx.song, ctx.rel)) {
+    const beat = ctx.bar * BEATS_PER_BAR;
+    const palette = ctx.song.style.palette;
+    if (ctx.rel === 0) {
+      const patch: PatchEvent = { kind: 'patch', beat, palette: { ...palette } };
+      out.push(patch);
+    }
+    if (ctx.inSection === 0 || isChordStartBar(ctx)) {
       const ev: SectionEvent = {
         kind: 'section',
-        beat: ctx.bar * BEATS_PER_BAR,
+        beat,
         name: ctx.section.name,
         songIndex: ctx.song.index,
         songTitle: ctx.song.title,
         key: { ...ctx.song.key },
         chord: toChordSpec(slot(ctx).chord),
         energy: energy(ctx),
+        palette: { ...palette },
+        groove: DRUM_FAMILY_LABEL[ctx.song.style.drumFamily],
       };
       out.push(ev);
     }
@@ -91,7 +108,7 @@ export class LocalEngine implements ComposerEngine {
 
   /** Order events, keep everything inside [startBeat, endBeat), and prevent same-pitch overlaps. */
   private finalize(events: MusicEvent[], startBeat: number, endBeat: number): MusicEvent[] {
-    const priority = (e: MusicEvent): number => (e.kind === 'section' ? 0 : e.kind === 'automation' ? 1 : 2);
+    const priority = (e: MusicEvent): number => (e.kind === 'patch' ? 0 : e.kind === 'section' ? 1 : e.kind === 'automation' ? 2 : 3);
     const eps = 1e-9;
     const indexed = events
       .filter((e) => e.beat >= startBeat - eps && e.beat < endBeat - eps)

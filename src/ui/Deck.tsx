@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { paletteSummary } from '../composition/sounds';
 import { useStore } from '../services/store';
 import { Cassette } from './Cassette';
 import { nextTape, togglePlayback } from './uiState';
@@ -72,6 +73,11 @@ export function Deck() {
           <div className="deck__title" aria-live="polite">
             {now.songTitle || '—'}
           </div>
+          {now.palette && (
+            <div className="deck__sound">
+              {paletteSummary(now.palette)} · {now.groove}
+            </div>
+          )}
         </div>
         <div className="deck__readouts">
           <Readout label="key" value={now.keyLabel} wide />

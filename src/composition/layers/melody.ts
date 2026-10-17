@@ -6,7 +6,8 @@
 import type { NoteEvent } from '@shared/index';
 import { chance, int, stream, weightedPick, type Rng } from '../rng';
 import { chordPcs, clamp, melodyScale, mod12, nearestInSet } from '../theory';
-import { barStart, energy, humanize, liveMood, note, slot, step8, type BarContext } from './context';
+import { barStart, drift, energy, humanize, note, slot, songMood, step8, style, type BarContext } from './context';
+import { renderSolo } from './solo';
 
 interface MotifNote {
   /** eighth index inside the 2-bar motif, 0..15 */
@@ -15,7 +16,12 @@ interface MotifNote {
   len: number;
   /** scale-step index (0 = tonic of the melody register) */
   step: number;
+  /** selection order: low ranks survive at low density */
+  rank: number;
 }
+
+/** Most notes a motif can have; the live density decides how many of them are played. */
+const MAX_MOTIF_NOTES = 10;
 
 interface Motif {
   notes: MotifNote[];
@@ -26,23 +32,23 @@ export function registerBase(tonic: number): number {
   return 55 + mod12(tonic - 7);
 }
 
-export function makeMotif(rng: Rng, density: number): Motif {
+export function makeMotif(rng: Rng): Motif {
   // onsets: favour off-beats and beat 2/3, leave the end of bar 2 open for a breath
   const weights = [0.5, 0.9, 0.7, 1, 0.8, 0.9, 0.6, 0.7, 0.45, 0.85, 0.6, 0.8, 0.35, 0.3, 0.1, 0.05];
-  const count = clamp(Math.round(2 + density * 6 + rng.next() * 1.5), 2, 9);
-  const onsets = new Set<number>();
+  const onsets: number[] = [];
   let guard = 0;
-  while (onsets.size < count && guard++ < 200) {
+  while (onsets.length < MAX_MOTIF_NOTES && guard++ < 400) {
     const i = int(rng, 0, 15);
-    if (rng.next() < weights[i]!) onsets.add(i);
+    if (!onsets.includes(i) && rng.next() < weights[i]!) onsets.push(i);
   }
+  const rankOf = new Map(onsets.map((at, r) => [at, r]));
   const sorted = [...onsets].sort((a, b) => a - b);
   let step: number = weightedPick(rng, [[2, 2], [4, 3], [5, 2], [7, 1]] as const);
   const notes: MotifNote[] = sorted.map((at, i) => {
     const nextAt = sorted[i + 1] ?? 16;
     const len = Math.max(1, Math.min(nextAt - at, i === sorted.length - 1 ? 6 : 4));
     if (i > 0) step = clamp(step + weightedPick(rng, [[-2, 2], [-1, 4], [1, 4], [2, 2], [0, 1], [3, 1], [-3, 1]] as const), 0, 10);
-    return { at, len, step };
+    return { at, len, step, rank: rankOf.get(at) ?? 0 };
   });
   return { notes };
 }
@@ -51,27 +57,38 @@ function sectionMotif(ctx: BarContext): Motif {
   const key = `motif:${ctx.song.index}:${ctx.section.index}`;
   const cached = ctx.cache.get(key) as Motif | undefined;
   if (cached) return cached;
-  const density = clamp(liveMood(ctx).melodyDensity * 0.6 + ctx.params.complexity * 0.5, 0, 1);
   // sections with the same name inside a song share their theme (recognisable "hook")
   const sameName = ctx.song.sections.find((s) => s.name === ctx.section.name);
-  const motif = makeMotif(stream(ctx.seed, 'motif', ctx.song.index, sameName?.index ?? ctx.section.index), density);
+  const motif = makeMotif(stream(ctx.seed, 'motif', ctx.song.index, sameName?.index ?? ctx.section.index));
   ctx.cache.set(key, motif);
   return motif;
 }
 
+/** Melody register for the song: tonic near the bottom, shifted by the lead patch's octave. */
+function register(ctx: BarContext): number {
+  return registerBase(ctx.song.key.tonic) + style(ctx).melodyOctave;
+}
+
 export function renderMelody(ctx: BarContext): NoteEvent[] {
   if (!ctx.section.layers.melody) return [];
+  if (ctx.section.name === 'Solo') {
+    const base = register(ctx);
+    return renderSolo(ctx, 'melody', base + 5, base + 26);
+  }
   const phraseBar = ctx.inSection % 8;
   // bar 6-7 of each 8 bar phrase: a single held tail note (or silence)
   const rng = stream(ctx.seed, 'melbar', ctx.bar);
   const motif = sectionMotif(ctx);
   const scale = melodyScale(ctx.song.key);
-  const base = registerBase(ctx.song.key.tonic);
+  const base = register(ctx);
   const chord = slot(ctx).chord;
   const pcsChord = chordPcs(chord);
   const start = barStart(ctx);
   const swing = ctx.params.swing;
-  const vel = 0.5 + energy(ctx) * 0.2;
+  const vel = 0.32 + energy(ctx) * 0.5;
+  // live density: "jazz" and the station decide how many motif notes are sung (doubled range)
+  const density = clamp(songMood(ctx).melodyDensity * 0.5 + (ctx.params.complexity - 0.5) * 1.1 + 0.25, 0, 1);
+  const keep = Math.round(2 + density * (MAX_MOTIF_NOTES - 2));
   const out: NoteEvent[] = [];
 
   const toMidi = (step: number): number => {
@@ -90,14 +107,14 @@ export function renderMelody(ctx: BarContext): NoteEvent[] {
 
   const half = phraseBar % 2; // which bar of the 2-bar motif
   const answer = phraseBar === 2 || phraseBar === 3; // second statement: resolve the ending
-  const variation = ctx.params.variation;
-  const inBar = motif.notes.filter((n) => Math.floor(n.at / 8) === half);
+  const variation = drift(ctx);
+  const inBar = motif.notes.filter((n) => Math.floor(n.at / 8) === half && n.rank < keep);
   inBar.forEach((n, i) => {
     let step = n.step;
     const last = i === inBar.length - 1;
     if (answer && half === 1 && last) step = Math.round(step / scale.length) * scale.length; // land on the tonic
-    if (chance(rng, variation * 0.2)) step += chance(rng, 0.5) ? 1 : -1;
-    if (chance(rng, variation * 0.1)) return; // occasionally leave a note out
+    if (chance(rng, variation * 0.35)) step += chance(rng, 0.5) ? 1 : -1;
+    if (chance(rng, variation * 0.18)) return; // occasionally leave a note out
     const i8 = n.at - half * 8;
     let midi = toMidi(step);
     const strong = i8 % 4 === 0 || n.len >= 3;

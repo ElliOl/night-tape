@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useStore } from '../services/store';
 import { tryGetController } from '../services/controller';
 import { Deck } from './Deck';
-import { GroovePanel, MixerPanel, StationPanel, TapeInfo, TapePanel } from './Panels';
+import { ChaosPanel, FilterPanel, GroovePanel, MixerPanel, StationPanel, TapeInfo, TapePanel } from './Panels';
 import { Scene } from './Scene';
 import { errorMessage, nextTape, togglePlayback, useUiState } from './uiState';
 
@@ -110,9 +110,11 @@ export function App() {
         <div className="grid">
           <StationPanel />
           <GroovePanel />
-          <TapeInfo />
+          <FilterPanel />
           <TapePanel />
+          <ChaosPanel />
           <MixerPanel />
+          <TapeInfo />
         </div>
       </main>
       <footer className="footer">every song is composed in your browser from the seed · nothing is sampled</footer>

@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import {
-  DEFAULT_MIXER, DEFAULT_PARAMS, DEFAULT_TAPE,
-  type GenerationParams, type LayerId, type MixerParams, type TapeParams,
+  DEFAULT_CHAOS, DEFAULT_MIXER, DEFAULT_PARAMS, DEFAULT_TAPE,
+  type ChaosParams, type FilterMode, type GenerationParams, type LayerId, type MixerParams, type SoundPalette, type TapeParams,
 } from '@shared/index';
+import type { ModOffsets } from './effective';
 
 /** Live read-out written by the Conductor, read by the UI. */
 export interface NowPlaying {
@@ -16,18 +17,26 @@ export interface NowPlaying {
   songIndex: number;
   /** absolute bar where the current song started */
   songStartBar: number;
+  palette: SoundPalette | null;
+  groove: string;
 }
 
 export interface HistoryEntry {
   index: number;
   title: string;
   keyLabel: string;
+  /** e.g. "Rhodes · half-time" */
+  sound?: string;
 }
 
 export interface AppState {
   params: GenerationParams;
   mixer: MixerParams;
   tape: TapeParams;
+  filterMode: FilterMode;
+  chaos: ChaosParams;
+  /** live chaos offsets per target (not persisted) */
+  mod: ModOffsets;
   muted: Partial<Record<LayerId, boolean>>;
   audioReady: boolean;
   playing: boolean;
@@ -41,8 +50,11 @@ export interface AppState {
   setParams(p: Partial<GenerationParams>): void;
   setMixerLevel(k: LayerId | 'master', v: number): void;
   setTape(t: Partial<TapeParams>): void;
+  setFilterMode(m: FilterMode): void;
+  setChaos(c: Partial<ChaosParams>): void;
+  setMod(m: ModOffsets): void;
   setMuted(layer: LayerId, muted: boolean): void;
-  replaceAll(params: GenerationParams, mixer: MixerParams, tape: TapeParams): void;
+  replaceAll(params: GenerationParams, mixer: MixerParams, tape: TapeParams, chaos?: ChaosParams, filterMode?: FilterMode): void;
   setAudioReady(v: boolean): void;
   setPlaying(v: boolean): void;
   setBusy(v: boolean): void;
@@ -62,12 +74,17 @@ export const INITIAL_NOW: NowPlaying = {
   songTitle: '',
   songIndex: -1,
   songStartBar: 0,
+  palette: null,
+  groove: '',
 };
 
 export const useStore = create<AppState>((set) => ({
   params: { ...DEFAULT_PARAMS },
   mixer: { ...DEFAULT_MIXER },
   tape: { ...DEFAULT_TAPE },
+  filterMode: 'lowpass',
+  chaos: { ...DEFAULT_CHAOS },
+  mod: {},
   muted: {},
   audioReady: false,
   playing: false,
@@ -79,8 +96,18 @@ export const useStore = create<AppState>((set) => ({
   setParams: (p) => set((s) => ({ params: { ...s.params, ...p } })),
   setMixerLevel: (k, v) => set((s) => ({ mixer: { ...s.mixer, [k]: v } })),
   setTape: (t) => set((s) => ({ tape: { ...s.tape, ...t } })),
+  setFilterMode: (filterMode) => set({ filterMode }),
+  setChaos: (c) => set((s) => ({ chaos: { ...s.chaos, ...c } })),
+  setMod: (mod) => set({ mod }),
   setMuted: (layer, muted) => set((s) => ({ muted: { ...s.muted, [layer]: muted } })),
-  replaceAll: (params, mixer, tape) => set({ params: { ...params }, mixer: { ...mixer }, tape: { ...tape } }),
+  replaceAll: (params, mixer, tape, chaos, filterMode) =>
+    set((s) => ({
+      params: { ...params },
+      mixer: { ...mixer },
+      tape: { ...tape },
+      chaos: chaos ? { ...chaos } : s.chaos,
+      filterMode: filterMode ?? s.filterMode,
+    })),
   setAudioReady: (audioReady) => set({ audioReady }),
   setPlaying: (playing) => set({ playing }),
   setBusy: (busy) => set({ busy }),

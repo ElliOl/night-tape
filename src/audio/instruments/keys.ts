@@ -1,7 +1,7 @@
 import * as Tone from 'tone';
-import type { MoodId } from '@shared/index';
+import type { KeysPatchId, MoodId } from '@shared/index';
 import { dbToGain, logMap, midiToHz } from '../mapping';
-import { getPreset, type KeysPreset } from '../presets';
+import { KEYS_PATCHES, getPreset, withPatch, type KeysPreset } from '../presets';
 import { rampParam, type Instrument, type InstrumentParam } from './instrument';
 
 /**
@@ -19,9 +19,12 @@ export class KeysInstrument implements Instrument {
   private preset: KeysPreset;
   private filterPos: number;
   private automated = false;
+  private mood: MoodId;
+  private patch: KeysPatchId = 'rhodes';
 
   constructor(mood: MoodId) {
-    const p = getPreset(mood).keys;
+    this.mood = mood;
+    const p = this.resolve();
     this.preset = p;
     this.filterPos = p.filterDefault;
     this.output = new Tone.Gain(dbToGain(p.levelDb));
@@ -38,9 +41,9 @@ export class KeysInstrument implements Instrument {
       harmonicity: p.harmonicity,
       modulationIndex: p.modIndex,
       oscillator: { type: 'sine' },
-      modulation: { type: 'sine' },
+      modulation: { type: p.modWave },
       envelope: { attack: p.attack, decay: p.decay, sustain: p.sustain, release: p.release },
-      modulationEnvelope: { attack: 0.002, decay: p.modDecay, sustain: 0.12, release: 0.4 },
+      modulationEnvelope: { attack: 0.002, decay: p.modDecay, sustain: p.modSustain, release: 0.4 },
     } as Partial<Tone.FMSynthOptions>;
   }
 
@@ -56,8 +59,19 @@ export class KeysInstrument implements Instrument {
     rampParam(this.filter.frequency, logMap(value01, p.cutoffMin, p.cutoffMax), time, rampSeconds);
   }
 
+  private resolve(): KeysPreset {
+    return withPatch(getPreset(this.mood).keys, KEYS_PATCHES[this.patch]);
+  }
+
+  setPatch(patch: string, rampSeconds: number): void {
+    if (!(patch in KEYS_PATCHES) || patch === this.patch) return;
+    this.patch = patch as KeysPatchId;
+    this.setPreset(this.mood, rampSeconds);
+  }
+
   setPreset(mood: MoodId, rampSeconds: number, resetAutomation = false): void {
-    const p = getPreset(mood).keys;
+    this.mood = mood;
+    const p = this.resolve();
     this.preset = p;
     const now = Tone.now();
     if (resetAutomation) this.automated = false;

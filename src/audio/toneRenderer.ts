@@ -1,6 +1,6 @@
 import * as Tone from 'tone';
 import {
-  DEFAULT_MIXER, DEFAULT_TAPE, type EventBatch, type LayerId, type MixerParams, type MoodId, type TapeParams,
+  DEFAULT_MIXER, DEFAULT_TAPE, type EventBatch, type FilterMode, type LayerId, type MixerParams, type MoodId, type TapeParams,
 } from '@shared/index';
 import type { AudioRenderer } from './types';
 import { AudioGraph } from './graph';
@@ -25,6 +25,7 @@ export class ToneRenderer implements AudioRenderer {
   private mixer: MixerParams = { ...DEFAULT_MIXER };
   private tape: TapeParams = { ...DEFAULT_TAPE };
   private readonly muted = new Set<LayerId>();
+  private filterMode: FilterMode = 'lowpass';
   private backlog: EventBatch[] = [];
   private resetChain: Promise<void> = Promise.resolve();
   private disposed = false;
@@ -55,10 +56,12 @@ export class ToneRenderer implements AudioRenderer {
     if (!this.graph) {
       const graph = new AudioGraph({ mood: this.mood, mixer: this.mixer, tape: this.tape, muted: this.muted });
       this.graph = graph;
+      graph.setFilterMode(this.filterMode);
       const host: SchedulerHost = {
         onNote: (ev, time, dur) => graph.trigger(ev.layer, ev.midi, dur, time, ev.vel),
         onAutomation: (ev, time, ramp) => graph.automate(ev.target, ev.value, time, ramp),
         onTempo: (bpm, time, ramp) => graph.setTempo(bpm, time, ramp),
+        onPatch: (ev) => graph.applyPalette(ev.palette),
       };
       this.scheduler = new Scheduler(Tone.getTransport(), host);
     }
@@ -93,6 +96,15 @@ export class ToneRenderer implements AudioRenderer {
     if (this.disposed) return;
     if (!this.scheduler) this.backlog.push(batch);
     else this.scheduler.schedule(batch);
+  }
+
+  cancelFrom(beat: number): void {
+    this.scheduler?.cancelFrom(beat);
+  }
+
+  setFilterMode(mode: FilterMode): void {
+    this.filterMode = mode;
+    this.graph?.setFilterMode(mode);
   }
 
   reset(fadeSeconds = 1.2): Promise<void> {

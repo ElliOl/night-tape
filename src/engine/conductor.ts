@@ -1,26 +1,39 @@
-import type { EventBatch, LayerId, SectionEvent } from '@shared/index';
+import type { EventBatch, GenerationParams, LayerId, SectionEvent } from '@shared/index';
 import { LAYER_IDS } from '@shared/index';
 import type { AudioRenderer } from '../audio/types';
 import type { ComposerEngine } from './types';
 import type { PlaybackController } from '../services/controller';
-import { INITIAL_NOW, useStore, type NowPlaying } from '../services/store';
+import { effectiveParams, effectiveTape } from '../services/effective';
+import { INITIAL_NOW, useStore, type AppState, type NowPlaying } from '../services/store';
 import { keyLabel } from '../composition/theory';
+import { PATCH_LABELS } from '../composition/sounds';
 
-/** How far ahead (beats) of the audio clock notes are scheduled: 4 bars. */
-const LOOKAHEAD_BEATS = 16;
+/** How far ahead (beats) of the audio clock notes are scheduled: 2 bars. */
+const LOOKAHEAD_BEATS = 8;
 /** Max bars rendered per pump tick (a stalled tab can't produce a giant burst). */
 const MAX_BARS_PER_TICK = 4;
 /** Pump interval; note timing never depends on it (events carry absolute beats). */
-const PUMP_MS = 200;
+const PUMP_MS = 150;
 /** UI read-out refresh interval. */
 const NOW_MS = 100;
+/** Groove changes are re-rendered from this far ahead of the audible position (covers the audio lookahead). */
+const FLUSH_MARGIN_BEATS = 0.4;
+/** Coalesce knob drags into at most one re-render per this many ms. */
+const FLUSH_DEBOUNCE_MS = 70;
 
 type Marker = { beat: number; type: 'section'; ev: SectionEvent } | { beat: number; type: 'tempo'; tempo: number };
 
+const grooveChanged = (a: GenerationParams, b: GenerationParams): boolean =>
+  a.energy !== b.energy || a.complexity !== b.complexity || a.variation !== b.variation || a.swing !== b.swing || a.tempo !== b.tempo;
+
+/** The composition controls actually used: user knobs + chaos offsets. */
+const liveParams = (st: AppState): GenerationParams => effectiveParams(st.params, st.mod);
+
 /**
  * Owns the generate-ahead loop between a ComposerEngine and an AudioRenderer. Asks the engine for one bar at a time,
- * ~4 bars ahead of the audio clock, always with the CURRENT params, so control changes are heard within a few bars.
- * Display state (song/key/chord/section/tempo) is derived by replaying Section events when the clock reaches them.
+ * ~2 bars ahead of the audio clock, with the CURRENT (chaos-modulated) controls. When the user moves a groove control,
+ * everything scheduled after the next fraction of a beat is cancelled and re-composed, so the change is heard
+ * almost immediately. Display state is derived by replaying Section events when the clock reaches them.
  */
 export class Conductor implements PlaybackController {
   private engine: ComposerEngine;
@@ -29,6 +42,7 @@ export class Conductor implements PlaybackController {
   private playing = false;
   private pumpTimer: ReturnType<typeof setInterval> | null = null;
   private nowTimer: ReturnType<typeof setInterval> | null = null;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private markers: Marker[] = [];
   private pumping = false;
   private unsubscribe: Array<() => void> = [];
@@ -43,11 +57,13 @@ export class Conductor implements PlaybackController {
       useStore.subscribe((state, prev) => {
         if (!this.started) return;
         if (state.mixer !== prev.mixer) this.renderer.setMixer(state.mixer);
-        if (state.tape !== prev.tape) this.renderer.setTape(state.tape);
+        if (state.tape !== prev.tape || state.mod !== prev.mod) this.renderer.setTape(effectiveTape(state.tape, state.mod));
+        if (state.filterMode !== prev.filterMode) this.renderer.setFilterMode(state.filterMode);
         if (state.params.mood !== prev.params.mood) this.renderer.setMood(state.params.mood);
         if (state.muted !== prev.muted) {
           for (const l of LAYER_IDS) if (!!state.muted[l] !== !!prev.muted[l]) this.renderer.setLayerMuted(l, !!state.muted[l]);
         }
+        if (grooveChanged(state.params, prev.params)) this.scheduleFlush();
       }),
     );
   }
@@ -57,7 +73,8 @@ export class Conductor implements PlaybackController {
     if (!this.started) {
       this.renderer.setMood(st.params.mood);
       this.renderer.setMixer(st.mixer);
-      this.renderer.setTape(st.tape);
+      this.renderer.setTape(effectiveTape(st.tape, st.mod));
+      this.renderer.setFilterMode(st.filterMode);
       for (const l of Object.keys(st.muted) as LayerId[]) this.renderer.setLayerMuted(l, !!st.muted[l]);
       await this.renderer.start();
       this.started = true;
@@ -119,11 +136,11 @@ export class Conductor implements PlaybackController {
   }
 
   async exportWav(bars: number): Promise<void> {
-    const { params, mixer, tape } = useStore.getState();
+    const { params, mixer, tape, filterMode } = useStore.getState();
     const { exportWav } = await import('./exportWav');
     useStore.getState().setExporting(true);
     try {
-      await exportWav(this.engineFactory(), params, mixer, tape, bars);
+      await exportWav(this.engineFactory(), params, mixer, tape, filterMode, bars);
     } finally {
       useStore.getState().setExporting(false);
     }
@@ -131,6 +148,7 @@ export class Conductor implements PlaybackController {
 
   dispose(): void {
     this.stopTimers();
+    if (this.flushTimer) clearTimeout(this.flushTimer);
     this.unsubscribe.forEach((u) => u());
     this.unsubscribe = [];
     this.renderer.dispose();
@@ -150,16 +168,38 @@ export class Conductor implements PlaybackController {
     this.nowTimer = null;
   }
 
-  /** Render bars until we are LOOKAHEAD_BEATS ahead of the audio clock. */
-  private pump(initialFill: boolean): void {
+  private scheduleFlush(): void {
+    if (this.flushTimer !== null) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      this.flush();
+    }, FLUSH_DEBOUNCE_MS);
+  }
+
+  /** Drop everything scheduled from just ahead of the audible position and compose it again with the new controls. */
+  private flush(): void {
+    if (!this.started || this.resetting || this.pumping) return;
+    const cut = this.renderer.getBeat() + FLUSH_MARGIN_BEATS;
+    const cutBar = Math.floor(cut / 4);
+    if (cutBar >= this.nextBar) return; // nothing scheduled there yet
+    this.renderer.cancelFrom(cut);
+    this.engine.rewind(cutBar);
+    this.markers = this.markers.filter((m) => m.beat < cut);
+    this.nextBar = cutBar;
+    this.pump(true, cut);
+  }
+
+  /** Render bars until we are LOOKAHEAD_BEATS ahead of the audio clock. Events before `from` are skipped. */
+  private pump(initialFill: boolean, from = -Infinity): void {
     if (this.pumping) return;
     this.pumping = true;
     try {
-      const params = useStore.getState().params;
-      const maxBars = initialFill ? LOOKAHEAD_BEATS / 4 : MAX_BARS_PER_TICK;
+      const params = liveParams(useStore.getState());
+      const maxBars = initialFill ? LOOKAHEAD_BEATS / 4 + 1 : MAX_BARS_PER_TICK;
       for (let i = 0; i < maxBars; i++) {
         if (this.nextBar * 4 - this.renderer.getBeat() >= LOOKAHEAD_BEATS) break;
-        const batch = this.engine.renderBars(this.nextBar, 1, params);
+        let batch = this.engine.renderBars(this.nextBar, 1, params);
+        if (from > batch.startBeat) batch = { ...batch, events: batch.events.filter((e) => e.beat >= from) };
         this.collectMarkers(batch);
         this.renderer.schedule(batch);
         this.nextBar += 1;
@@ -192,12 +232,14 @@ export class Conductor implements PlaybackController {
         const key = keyLabel(m.ev.key);
         patch.keyLabel = key;
         patch.sectionName = m.ev.name;
+        patch.palette = m.ev.palette;
+        patch.groove = m.ev.groove;
         if (m.ev.chord) patch.chordLabel = m.ev.chord.label;
         if (m.ev.songIndex !== (patch.songIndex ?? store.now.songIndex)) {
           patch.songIndex = m.ev.songIndex;
           patch.songTitle = m.ev.songTitle;
           patch.songStartBar = Math.round(m.ev.beat / 4);
-          store.pushHistory({ index: m.ev.songIndex, title: m.ev.songTitle, keyLabel: key });
+          store.pushHistory({ index: m.ev.songIndex, title: m.ev.songTitle, keyLabel: key, sound: `${PATCH_LABELS.keys[m.ev.palette.keys]} · ${m.ev.groove}` });
         }
       }
     }

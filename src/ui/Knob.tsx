@@ -12,6 +12,8 @@ interface KnobProps {
   size?: 'sm' | 'lg';
   disabled?: boolean;
   title?: string;
+  /** where the chaos LFO is currently pushing this knob (0..1); drawn as a moving dot */
+  mod?: number;
 }
 
 const SWEEP = 270; // degrees from min to max
@@ -20,7 +22,7 @@ const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 /**
  * Rotary knob (vertical drag, wheel, arrow keys; double-click resets). Accessible as an ARIA slider.
  */
-function KnobImpl({ label, value, onChange, display, defaultValue, size = 'sm', disabled, title }: KnobProps) {
+function KnobImpl({ label, value, onChange, display, defaultValue, size = 'sm', disabled, title, mod }: KnobProps) {
   const id = useId();
   const drag = useRef<{ y: number; v: number } | null>(null);
   const shown = display ?? `${Math.round(value * 100)}%`;
@@ -93,6 +95,14 @@ function KnobImpl({ label, value, onChange, display, defaultValue, size = 'sm', 
             strokeDasharray={`${value * SWEEP} 360`}
             transform="rotate(135 32 32)"
           />
+          {mod !== undefined && Math.abs(mod - value) > 0.004 && (
+            <circle
+              className="knob__mod"
+              r={3.2}
+              cx={32 + 27 * Math.cos(((135 + mod * SWEEP) * Math.PI) / 180)}
+              cy={32 + 27 * Math.sin(((135 + mod * SWEEP) * Math.PI) / 180)}
+            />
+          )}
         </svg>
         <div className="knob__cap" style={{ transform: `rotate(${angle}deg)` }}>
           <span className="knob__mark" />

@@ -1,4 +1,4 @@
-import type { EventBatch, GenerationParams, MixerParams, TapeParams } from '@shared/index';
+import type { EventBatch, FilterMode, GenerationParams, MixerParams, TapeParams } from '@shared/index';
 import { audioBufferToWav, renderOffline } from '../audio/offline';
 import type { ComposerEngine } from './types';
 
@@ -11,13 +11,14 @@ export async function exportWav(
   params: GenerationParams,
   mixer: MixerParams,
   tape: TapeParams,
+  filterMode: FilterMode,
   bars: number,
 ): Promise<void> {
   engine.init(params.seed, params);
   const batches: EventBatch[] = [];
   for (let bar = 0; bar < bars; bar++) batches.push(engine.renderBars(bar, 1, params));
   const tempo = batches[0]?.tempo ?? params.tempo ?? 80;
-  const buffer = await renderOffline(batches, bars, tempo, params.mood, mixer, tape);
+  const buffer = await renderOffline(batches, bars, tempo, params.mood, mixer, tape, filterMode);
   const url = URL.createObjectURL(audioBufferToWav(buffer));
   const a = document.createElement('a');
   a.href = url;

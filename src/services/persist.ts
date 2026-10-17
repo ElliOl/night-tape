@@ -3,8 +3,8 @@
  * (default: localStorage when available, never required).
  */
 import {
-  DEFAULT_MIXER, DEFAULT_PARAMS, DEFAULT_TAPE, LAYER_IDS, MOOD_IDS,
-  type GenerationParams, type MixerParams, type MoodId, type TapeParams,
+  DEFAULT_CHAOS, DEFAULT_MIXER, DEFAULT_PARAMS, DEFAULT_TAPE, FILTER_MODES, LAYER_IDS, MOOD_IDS,
+  type ChaosParams, type FilterMode, type GenerationParams, type MixerParams, type MoodId, type TapeParams,
 } from '@shared/index';
 import { TEMPO_MAX, TEMPO_MIN } from '../engine/localEngine';
 
@@ -58,10 +58,28 @@ export function sanitizeTape(raw: unknown): TapeParams {
   return out;
 }
 
+export function sanitizeChaos(raw: unknown): ChaosParams {
+  const f = DEFAULT_CHAOS;
+  if (!isRecord(raw)) return { ...f };
+  const bool = (v: unknown, d: boolean): boolean => (typeof v === 'boolean' ? v : d);
+  return {
+    amount: unit(raw.amount, f.amount),
+    rate: unit(raw.rate, f.rate),
+    filter: bool(raw.filter, f.filter),
+    tape: bool(raw.tape, f.tape),
+    groove: bool(raw.groove, f.groove),
+  };
+}
+
+export const sanitizeFilterMode = (raw: unknown): FilterMode =>
+  typeof raw === 'string' && (FILTER_MODES as readonly string[]).includes(raw) ? (raw as FilterMode) : 'lowpass';
+
 export interface Saved {
   params: GenerationParams;
   mixer: MixerParams;
   tape: TapeParams;
+  chaos: ChaosParams;
+  filterMode: FilterMode;
 }
 
 export function loadLast(storage: StorageLike | null = defaultStorage()): Saved | null {
@@ -71,7 +89,13 @@ export function loadLast(storage: StorageLike | null = defaultStorage()): Saved 
     if (!raw) return null;
     const data: unknown = JSON.parse(raw);
     if (!isRecord(data)) return null;
-    return { params: sanitizeParams(data.params), mixer: sanitizeMixer(data.mixer), tape: sanitizeTape(data.tape) };
+    return {
+      params: sanitizeParams(data.params),
+      mixer: sanitizeMixer(data.mixer),
+      tape: sanitizeTape(data.tape),
+      chaos: sanitizeChaos(data.chaos),
+      filterMode: sanitizeFilterMode(data.filterMode),
+    };
   } catch {
     return null;
   }
@@ -97,10 +121,10 @@ export function startPersistence<S extends Saved>(store: Subscribable<S>, storag
   const write = (): void => {
     timer = null;
     const s = store.getState();
-    saveLast({ params: s.params, mixer: s.mixer, tape: s.tape }, storage);
+    saveLast({ params: s.params, mixer: s.mixer, tape: s.tape, chaos: s.chaos, filterMode: s.filterMode }, storage);
   };
   const unsub = store.subscribe((s, prev) => {
-    if (s.params === prev.params && s.mixer === prev.mixer && s.tape === prev.tape) return;
+    if (s.params === prev.params && s.mixer === prev.mixer && s.tape === prev.tape && s.chaos === prev.chaos && s.filterMode === prev.filterMode) return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(write, 500);
   });

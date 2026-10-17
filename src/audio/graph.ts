@@ -1,5 +1,7 @@
 import * as Tone from 'tone';
-import { DEFAULT_TAPE, LAYER_IDS, type AutomationTarget, type LayerId, type MixerParams, type MoodId, type TapeParams } from '@shared/index';
+import {
+  DEFAULT_TAPE, LAYER_IDS, type AutomationTarget, type FilterMode, type LayerId, type MixerParams, type MoodId, type SoundPalette, type TapeParams,
+} from '@shared/index';
 import { FxBus } from './fx';
 import { allInstruments, createInstruments, type InstrumentSet } from './instruments';
 import { TapeMaster } from './master';
@@ -60,6 +62,15 @@ export class AudioGraph {
     this.master.setTape(tape, Tone.now(), rampSeconds);
     this.fx.setSpace(tape.space, rampSeconds);
     this.instruments.texture.setTape(tape, rampSeconds);
+  }
+
+  setFilterMode(mode: FilterMode): void {
+    this.master.setFilterMode(mode);
+  }
+
+  /** A new song: every instrument moves to its patch (glides while the song transition has the master filter closed). */
+  applyPalette(palette: SoundPalette, rampSeconds = 1.2): void {
+    for (const l of ['keys', 'pad', 'bass', 'melody', 'drums'] as const) this.instruments[l].setPatch?.(palette[l], rampSeconds);
   }
 
   setLayerMuted(layer: LayerId, muted: boolean): void {

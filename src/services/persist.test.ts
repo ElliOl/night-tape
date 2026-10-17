@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MIXER, DEFAULT_PARAMS, DEFAULT_TAPE } from '@shared/index';
+import { DEFAULT_CHAOS, DEFAULT_MIXER, DEFAULT_PARAMS, DEFAULT_TAPE } from '@shared/index';
 import { LAST_KEY, loadLast, sanitizeParams, saveLast, type StorageLike } from './persist';
 
 function memory(): StorageLike {
@@ -18,14 +18,20 @@ describe('persist', () => {
     expect(p.mood).toBe(DEFAULT_PARAMS.mood);
     expect(p.energy).toBe(1);
     expect(p.swing).toBe(0);
-    expect(p.tempo).toBe(110);
+    expect(p.tempo).toBe(140);
     expect(p.seed).toBe(0xffffffff);
     expect(sanitizeParams({ tempo: null }).tempo).toBeNull();
   });
 
   it('round-trips through storage', () => {
     const s = memory();
-    const saved = { params: { ...DEFAULT_PARAMS, mood: 'rainy' as const }, mixer: DEFAULT_MIXER, tape: { ...DEFAULT_TAPE, rain: 0.9 } };
+    const saved = {
+      params: { ...DEFAULT_PARAMS, mood: 'rainy' as const },
+      mixer: DEFAULT_MIXER,
+      tape: { ...DEFAULT_TAPE, rain: 0.9, cutoff: 0.3 },
+      chaos: { ...DEFAULT_CHAOS, amount: 0.8, groove: false },
+      filterMode: 'highpass' as const,
+    };
     saveLast(saved, s);
     expect(loadLast(s)).toEqual(saved);
   });

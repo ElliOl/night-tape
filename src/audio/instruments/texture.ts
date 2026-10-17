@@ -104,11 +104,12 @@ export class TextureInstrument implements Instrument {
   private applyLevels(time: number, ramp: number): void {
     const p = this.preset;
     const t = this.tape;
-    rampParam(this.crackleGain.gain, ambienceGain(t.vinyl, -34, 26, p.crackleDb), time, ramp);
-    rampParam(this.rumbleGain.gain, ambienceGain(t.vinyl, -40, 16, p.crackleDb), time, ramp);
-    rampParam(this.rainGain.gain, ambienceGain(t.rain, -42, 30, p.rainDb), time, ramp);
-    rampParam(this.dropGain.gain, ambienceGain(t.rain, -38, 26, p.rainDb), time, ramp);
-    rampParam(this.hissGain.gain, ambienceGain(t.hiss, -54, 26, p.hissDb), time, ramp);
+    // ranges are wide on purpose: the top of each knob is a downpour / a worn-out record
+    rampParam(this.crackleGain.gain, ambienceGain(t.vinyl, -40, 46, p.crackleDb), time, ramp);
+    rampParam(this.rumbleGain.gain, ambienceGain(t.vinyl, -46, 36, p.crackleDb), time, ramp);
+    rampParam(this.rainGain.gain, ambienceGain(t.rain, -44, 52, p.rainDb), time, ramp);
+    rampParam(this.dropGain.gain, ambienceGain(t.rain, -40, 46, p.rainDb), time, ramp);
+    rampParam(this.hissGain.gain, ambienceGain(t.hiss, -56, 44, p.hissDb), time, ramp);
   }
 
   trigger(): void {

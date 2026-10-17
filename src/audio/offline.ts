@@ -1,5 +1,5 @@
 import * as Tone from 'tone';
-import type { EventBatch, MixerParams, MoodId, TapeParams } from '@shared/index';
+import type { EventBatch, FilterMode, MixerParams, MoodId, TapeParams } from '@shared/index';
 import { AudioGraph } from './graph';
 import { TempoMap, clampBpm, secondsPerBeat } from './mapping';
 import { Scheduler, TEMPO_RAMP_BEATS, type SchedulerHost } from './scheduler';
@@ -20,6 +20,7 @@ export async function renderOffline(
   mood: MoodId,
   mixer: MixerParams,
   tape: TapeParams,
+  filterMode: FilterMode = 'lowpass',
 ): Promise<AudioBuffer> {
   const ordered = [...batches].sort((a, b) => a.startBeat - b.startBeat);
   const totalBeats = Math.max(1, bars) * 4;
@@ -38,10 +39,12 @@ export async function renderOffline(
 
   const rendered = await Tone.Offline((ctx) => {
     const graph = new AudioGraph({ mood, mixer, tape, analysis: false });
+    graph.setFilterMode(filterMode);
     const host: SchedulerHost = {
       onNote: (ev, time, dur) => graph.trigger(ev.layer, ev.midi, dur, time, ev.vel),
       onAutomation: (ev, time, ramp) => graph.automate(ev.target, ev.value, time, ramp),
       onTempo: (bpm, time, ramp) => graph.setTempo(bpm, time, ramp),
+      onPatch: (ev) => graph.applyPalette(ev.palette, 0),
     };
     const transport = ctx.transport;
     transport.bpm.value = bpm0;

@@ -31,9 +31,9 @@ export interface ChordSpec {
 
 /**
  * Drum layer MIDI mapping (General MIDI subset).
- * 36 kick, 37 rim, 38 snare, 42 closed hat, 46 open hat, 70 shaker.
+ * 36 kick, 37 rim, 38 snare, 39 clap, 42 closed hat, 46 open hat, 51 ride, 70 shaker.
  */
-export const DRUM = { kick: 36, rim: 37, snare: 38, hatClosed: 42, hatOpen: 46, shaker: 70 } as const;
+export const DRUM = { kick: 36, rim: 37, snare: 38, clap: 39, hatClosed: 42, hatOpen: 46, ride: 51, shaker: 70 } as const;
 
 export interface NoteEvent {
   kind: 'note';
@@ -68,11 +68,36 @@ export interface AutomationEvent {
   rampBeats?: number;
 }
 
+// ---------------------------------------------------------------------------------------------
+// sound palettes: every song picks its own instruments (ids are renderer patches)
+// ---------------------------------------------------------------------------------------------
+
+export type KeysPatchId = 'rhodes' | 'wurli' | 'felt' | 'organ' | 'vibes' | 'dusty';
+export type PadPatchId = 'warm' | 'strings' | 'glass' | 'hollow' | 'tape';
+export type BassPatchId = 'round' | 'upright' | 'muted' | 'square' | 'fingered';
+export type LeadPatchId = 'flute' | 'kalimba' | 'vibes' | 'trumpet' | 'whistle' | 'guitar' | 'synth';
+export type KitId = 'dusty' | 'brushes' | 'tight' | 'crunchy' | 'jazz' | 'soft';
+
+export interface SoundPalette {
+  keys: KeysPatchId;
+  pad: PadPatchId;
+  bass: BassPatchId;
+  melody: LeadPatchId;
+  drums: KitId;
+}
+
+/** Switches instrument patches (sent at the start of every song). */
+export interface PatchEvent {
+  kind: 'patch';
+  beat: number;
+  palette: SoundPalette;
+}
+
 /** Marks a section / chord boundary. Used for UI display. */
 export interface SectionEvent {
   kind: 'section';
   beat: number;
-  /** e.g. "Intro", "Groove", "Melody", "Break", "Outro" */
+  /** e.g. "Intro", "Groove", "Theme", "Bridge", "Solo", "Break", "Outro" */
   name: string;
   /** index of the song (a "tape side") in the infinite stream */
   songIndex: number;
@@ -80,9 +105,13 @@ export interface SectionEvent {
   key: KeySpec;
   chord?: ChordSpec;
   energy: number;
+  /** the song's instruments */
+  palette: SoundPalette;
+  /** human-readable groove family, e.g. "half-time" */
+  groove: string;
 }
 
-export type MusicEvent = NoteEvent | AutomationEvent | SectionEvent;
+export type MusicEvent = NoteEvent | AutomationEvent | SectionEvent | PatchEvent;
 
 /** Contiguous chunk of music covering [startBeat, endBeat). Batches are produced in order, no gaps. */
 export interface EventBatch {

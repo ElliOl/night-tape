@@ -4,7 +4,7 @@
  *  - filterDefault (0..1): position used until automation arrives.
  *  - levelDb: static output trim of the instrument.
  */
-import type { LayerId, MoodId } from '@shared/index';
+import type { BassPatchId, KeysPatchId, KitId, LayerId, LeadPatchId, MoodId, PadPatchId } from '@shared/index';
 
 export type Wave = 'sine' | 'triangle' | 'sawtooth' | 'square';
 
@@ -18,6 +18,8 @@ export interface KeysPreset {
   release: number;
   /** how fast the bell-like attack fades */
   modDecay: number;
+  modSustain: number;
+  modWave: Wave;
   tremoloRate: number;
   tremoloDepth: number;
   cutoffMin: number;
@@ -61,6 +63,8 @@ export interface MelodyPreset {
   bell: number;
   bellHarmonicity: number;
   bellModIndex: number;
+  bellDecay: number;
+  softWave: Wave;
   attack: number;
   release: number;
   vibratoRate: number;
@@ -79,7 +83,13 @@ export interface DrumPreset {
   snareDb: number;
   snareDecay: number;
   snareToneHz: number;
+  /** centre of the snare's noise band */
+  snareHz: number;
+  snareNoise: 'white' | 'pink' | 'brown';
+  clapDb: number;
   rimDb: number;
+  rideDb: number;
+  hatHpHz: number;
   hatDb: number;
   hatDecay: number;
   openHatDecay: number;
@@ -146,6 +156,8 @@ const BASE: MoodPreset = {
     sustain: 0.18,
     release: 1.1,
     modDecay: 0.35,
+    modSustain: 0.12,
+    modWave: 'sine',
     tremoloRate: 3.6,
     tremoloDepth: 0.28,
     cutoffMin: 700,
@@ -184,6 +196,8 @@ const BASE: MoodPreset = {
     bell: 0.5,
     bellHarmonicity: 3.5,
     bellModIndex: 1.6,
+    bellDecay: 1.4,
+    softWave: 'sine',
     attack: 0.01,
     release: 1.2,
     vibratoRate: 4.8,
@@ -201,7 +215,12 @@ const BASE: MoodPreset = {
     snareDb: -12,
     snareDecay: 0.17,
     snareToneHz: 185,
+    snareHz: 1900,
+    snareNoise: 'pink',
+    clapDb: -12,
     rimDb: -14,
+    rideDb: -22,
+    hatHpHz: 6500,
     hatDb: -22,
     hatDecay: 0.045,
     openHatDecay: 0.28,
@@ -276,3 +295,61 @@ export const PRESETS: Record<MoodId, MoodPreset> = {
 };
 
 export const getPreset = (mood: MoodId): MoodPreset => PRESETS[mood] ?? BASE;
+
+// ---------------------------------------------------------------------------------------------
+// patches: every song picks one per instrument (see composition/form.ts pickStyle).
+// A patch overrides timbre parameters of the station preset; `trimDb` is added to its level.
+// ---------------------------------------------------------------------------------------------
+
+type Patch<T> = Partial<Omit<T, 'levelDb'>> & { trimDb?: number };
+
+export const KEYS_PATCHES: Record<KeysPatchId, Patch<KeysPreset>> = {
+  rhodes: { harmonicity: 1, modIndex: 3.2, modWave: 'sine', decay: 2.2, sustain: 0.18, release: 1.1, modDecay: 0.35, modSustain: 0.12, tremoloRate: 3.6, tremoloDepth: 0.28, chorusWet: 0.3, cutoffMax: 7000 },
+  wurli: { harmonicity: 1, modIndex: 5.5, modWave: 'triangle', decay: 1.4, sustain: 0.3, release: 0.5, modDecay: 0.18, modSustain: 0.2, tremoloRate: 5.6, tremoloDepth: 0.45, chorusWet: 0.15, cutoffMax: 9000, trimDb: -2 },
+  felt: { harmonicity: 2, modIndex: 1.1, modWave: 'sine', decay: 1.3, sustain: 0.04, release: 0.7, modDecay: 0.12, modSustain: 0.02, tremoloRate: 1, tremoloDepth: 0.02, chorusWet: 0.12, cutoffMax: 3600, trimDb: 2 },
+  organ: { harmonicity: 2, modIndex: 0.7, modWave: 'sine', attack: 0.015, decay: 0.4, sustain: 0.85, release: 0.25, modDecay: 2, modSustain: 0.9, tremoloRate: 6.4, tremoloDepth: 0.3, chorusWet: 0.5, cutoffMax: 6000, trimDb: -6 },
+  vibes: { harmonicity: 4, modIndex: 1.8, modWave: 'sine', decay: 2.8, sustain: 0.05, release: 1.6, modDecay: 0.6, modSustain: 0.05, tremoloRate: 5.2, tremoloDepth: 0.4, chorusWet: 0.2, cutoffMax: 9000, trimDb: -2 },
+  dusty: { harmonicity: 3, modIndex: 1.6, modWave: 'sine', decay: 1.8, sustain: 0.08, release: 0.9, modDecay: 0.25, modSustain: 0.05, tremoloRate: 2.5, tremoloDepth: 0.1, chorusWet: 0.35, cutoffMax: 3200, trimDb: 1 },
+};
+
+export const PAD_PATCHES: Record<PadPatchId, Patch<PadPreset>> = {
+  warm: { wave: 'triangle', spread: 18, attack: 1.6, cutoffMax: 4000, chorusWet: 0.5 },
+  strings: { wave: 'sawtooth', spread: 24, attack: 1.2, cutoffMax: 2600, filterDefault: 0.5, chorusWet: 0.6, trimDb: -4 },
+  glass: { wave: 'sine', spread: 10, attack: 2.2, cutoffMax: 8000, filterDefault: 0.7, chorusWet: 0.7, trimDb: 2 },
+  hollow: { wave: 'square', spread: 14, attack: 1.4, cutoffMax: 2000, filterDefault: 0.45, chorusWet: 0.4, trimDb: -6 },
+  tape: { wave: 'sawtooth', spread: 40, attack: 0.9, cutoffMax: 3000, filterDefault: 0.45, lfoDepthCents: 900, chorusWet: 0.55, trimDb: -5 },
+};
+
+export const BASS_PATCHES: Record<BassPatchId, Patch<BassPreset>> = {
+  round: { wave: 'sine', drive: 2.2, attack: 0.008, decay: 0.5, sustain: 0.7, release: 0.2, filterDefault: 0.45, q: 0.8 },
+  upright: { wave: 'triangle', drive: 1.4, attack: 0.004, decay: 0.35, sustain: 0.15, release: 0.12, filterDefault: 0.55, q: 1.2, trimDb: 2 },
+  muted: { wave: 'sawtooth', drive: 1.2, attack: 0.005, decay: 0.25, sustain: 0.3, release: 0.08, filterDefault: 0.22, q: 1.5, trimDb: -2 },
+  square: { wave: 'square', drive: 1.1, attack: 0.006, decay: 0.5, sustain: 0.6, release: 0.15, filterDefault: 0.3, q: 1, trimDb: -5 },
+  fingered: { wave: 'triangle', drive: 2.6, attack: 0.006, decay: 0.6, sustain: 0.5, release: 0.15, filterDefault: 0.6, q: 1 },
+};
+
+export const LEAD_PATCHES: Record<LeadPatchId, Patch<MelodyPreset>> = {
+  flute: { bell: 0.1, softWave: 'sine', attack: 0.06, release: 0.8, vibratoRate: 5, vibratoDepth: 0.14, filterDefault: 0.55 },
+  kalimba: { bell: 1, bellHarmonicity: 3.5, bellModIndex: 2.2, bellDecay: 0.5, release: 0.6, vibratoDepth: 0, filterDefault: 0.7 },
+  vibes: { bell: 0.9, bellHarmonicity: 4, bellModIndex: 1.4, bellDecay: 1.6, release: 1.4, vibratoRate: 5.5, vibratoDepth: 0.1, filterDefault: 0.65 },
+  trumpet: { bell: 0, softWave: 'sawtooth', attack: 0.05, release: 0.3, vibratoRate: 5.2, vibratoDepth: 0.12, filterDefault: 0.32, trimDb: -5 },
+  whistle: { bell: 0, softWave: 'sine', attack: 0.03, release: 0.4, vibratoRate: 6, vibratoDepth: 0.25, filterDefault: 0.85, trimDb: -2 },
+  guitar: { bell: 0.85, bellHarmonicity: 1, bellModIndex: 3, bellDecay: 0.45, release: 0.4, vibratoRate: 4.5, vibratoDepth: 0.04, filterDefault: 0.45 },
+  synth: { bell: 0.2, softWave: 'square', attack: 0.02, release: 0.5, vibratoRate: 5, vibratoDepth: 0.1, filterDefault: 0.4, trimDb: -7 },
+};
+
+export const KITS: Record<KitId, Patch<DrumPreset>> = {
+  dusty: {},
+  brushes: { kickDb: -10, kickDecay: 0.3, snareNoise: 'pink', snareDecay: 0.35, snareHz: 2600, snareDb: -14, hatDb: -26, rideDb: -23, ceilingHz: 5000, drive: 1.2 },
+  tight: { kickHz: 48, kickDecay: 0.6, kickPitchOct: 4.5, kickDb: -2, snareDecay: 0.12, snareHz: 2200, snareNoise: 'white', snareDb: -11, clapDb: -10, hatDecay: 0.03, hatHpHz: 8000, ceilingHz: 9500, drive: 1.4 },
+  crunchy: { kickDecay: 0.45, kickPitchOct: 3, drive: 4.5, ceilingHz: 3800, snareDb: -10, hatDb: -20, snareHz: 1600, trimDb: -2 },
+  jazz: { kickDb: -9, kickHz: 60, kickDecay: 0.3, snareNoise: 'white', snareDecay: 0.22, snareHz: 3000, rideDb: -20, hatDb: -24, ceilingHz: 8000, drive: 1.3 },
+  soft: { kickDb: -7, kickDecay: 0.5, snareDb: -16, rimDb: -13, hatDb: -26, shakerDb: -22, ceilingHz: 4200, drive: 1.1 },
+};
+
+/** Station preset with a patch on top. */
+export function withPatch<T extends { levelDb: number }>(base: T, patch: Patch<T> | undefined): T {
+  if (!patch) return base;
+  const { trimDb, ...rest } = patch;
+  return { ...base, ...(rest as Partial<T>), levelDb: base.levelDb + (trimDb ?? 0) };
+}

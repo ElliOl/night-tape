@@ -1,7 +1,7 @@
 import * as Tone from 'tone';
-import type { MoodId } from '@shared/index';
+import type { MoodId, PadPatchId } from '@shared/index';
 import { dbToGain, logMap, midiToHz } from '../mapping';
-import { getPreset, type PadPreset } from '../presets';
+import { PAD_PATCHES, getPreset, withPatch, type PadPreset } from '../presets';
 import { rampParam, type Instrument, type InstrumentParam } from './instrument';
 
 /** Soft detuned pad -> slowly breathing low-pass -> wide chorus. */
@@ -16,9 +16,12 @@ export class PadInstrument implements Instrument {
   private preset: PadPreset;
   private filterPos: number;
   private automated = false;
+  private mood: MoodId;
+  private patch: PadPatchId = 'warm';
 
   constructor(mood: MoodId) {
-    const p = getPreset(mood).pad;
+    this.mood = mood;
+    const p = this.resolve();
     this.preset = p;
     this.filterPos = p.filterDefault;
     this.output = new Tone.Gain(dbToGain(p.levelDb));
@@ -51,8 +54,19 @@ export class PadInstrument implements Instrument {
     rampParam(this.filter.frequency, logMap(value01, this.preset.cutoffMin, this.preset.cutoffMax), time, rampSeconds);
   }
 
+  private resolve(): PadPreset {
+    return withPatch(getPreset(this.mood).pad, PAD_PATCHES[this.patch]);
+  }
+
+  setPatch(patch: string, rampSeconds: number): void {
+    if (!(patch in PAD_PATCHES) || patch === this.patch) return;
+    this.patch = patch as PadPatchId;
+    this.setPreset(this.mood, rampSeconds);
+  }
+
   setPreset(mood: MoodId, rampSeconds: number, resetAutomation = false): void {
-    const p = getPreset(mood).pad;
+    this.mood = mood;
+    const p = this.resolve();
     const waveChanged = p.wave !== this.preset.wave;
     this.preset = p;
     const now = Tone.now();

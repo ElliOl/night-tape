@@ -44,15 +44,19 @@ export function melodyScale(key: KeySpec): number[] {
 // ---------------------------------------------------------------------------------------------
 
 export type ChordQuality =
-  | 'maj7' | 'maj9' | '6/9'
-  | 'm7' | 'm9' | 'm11'
-  | '7' | '9' | '13' | '7b9' | '9sus'
+  | 'maj' | 'maj7' | 'maj9' | '6/9' | 'maj13' | 'maj9#11'
+  | 'm' | 'm7' | 'm9' | 'm11'
+  | '7' | '9' | '13' | '7b9' | '7#9' | '9sus' | '7sus'
   | 'm7b5';
 
 export const QUALITY_INTERVALS: Record<ChordQuality, readonly number[]> = {
+  maj: [0, 4, 7],
   maj7: [0, 4, 7, 11],
   maj9: [0, 4, 7, 11, 14],
   '6/9': [0, 4, 7, 9, 14],
+  maj13: [0, 4, 11, 14, 21],
+  'maj9#11': [0, 4, 11, 14, 18],
+  m: [0, 3, 7],
   m7: [0, 3, 7, 10],
   m9: [0, 3, 7, 10, 14],
   m11: [0, 3, 7, 10, 14, 17],
@@ -60,28 +64,35 @@ export const QUALITY_INTERVALS: Record<ChordQuality, readonly number[]> = {
   '9': [0, 4, 7, 10, 14],
   '13': [0, 4, 10, 14, 21],
   '7b9': [0, 4, 7, 10, 13],
+  '7#9': [0, 4, 10, 15],
   '9sus': [0, 5, 7, 10, 14],
+  '7sus': [0, 5, 7, 10],
   m7b5: [0, 3, 6, 10],
 };
 
-/** Simpler / richer versions of each quality, used by the "jazz" (complexity) control. */
+/** One step plainer / lusher for each quality (the "jazz" control walks these chains). */
 const SIMPLER: Partial<Record<ChordQuality, ChordQuality>> = {
-  maj9: 'maj7', '6/9': 'maj7', m9: 'm7', m11: 'm9', '9': '7', '13': '9', '7b9': '7',
+  maj13: 'maj9', 'maj9#11': 'maj9', maj9: 'maj7', '6/9': 'maj7', maj7: 'maj',
+  m11: 'm9', m9: 'm7', m7: 'm',
+  '13': '9', '9': '7', '7b9': '7', '7#9': '7', '9sus': '7sus',
 };
 const RICHER: Partial<Record<ChordQuality, ChordQuality>> = {
-  maj7: 'maj9', m7: 'm9', m9: 'm11', '7': '9', '9': '13',
+  maj: 'maj7', maj7: 'maj9', maj9: 'maj13', '6/9': 'maj9#11',
+  m: 'm7', m7: 'm9', m9: 'm11',
+  '7': '9', '9': '13', '7b9': '7#9', '7sus': '9sus',
 };
 
-/** Shift a quality toward plainer (complexity < 0.35) or lusher (> 0.7) harmony. */
+/** Colour steps for a complexity value: 0 -> -2 (triads), 0.5 -> 0, 1 -> +2 (13ths). */
+export function colourSteps(complexity: number): number {
+  return Math.round((clamp01(complexity) - 0.5) * 4.4);
+}
+
+/** Walk a quality toward plainer (complexity < 0.5) or lusher (> 0.5) harmony. */
 export function colourQuality(q: ChordQuality, complexity: number): ChordQuality {
-  if (complexity < 0.35) {
-    let out = q;
-    // very low complexity strips two levels (m11 -> m9 -> m7)
-    for (let i = 0; i < (complexity < 0.15 ? 2 : 1); i++) out = SIMPLER[out] ?? out;
-    return out;
-  }
-  if (complexity > 0.7) return RICHER[q] ?? q;
-  return q;
+  const steps = colourSteps(complexity);
+  let out = q;
+  for (let i = 0; i < Math.abs(steps); i++) out = (steps < 0 ? SIMPLER[out] : RICHER[out]) ?? out;
+  return out;
 }
 
 export interface Chord {
@@ -93,7 +104,7 @@ export interface Chord {
 }
 
 export function chordLabel(c: Pick<Chord, 'rootPc' | 'quality'>): string {
-  const suffix = c.quality === '7' ? '7' : c.quality;
+  const suffix = c.quality === 'maj' ? '' : c.quality;
   return `${PC_NAMES[mod12(c.rootPc)]}${suffix}`;
 }
 
@@ -121,9 +132,14 @@ export function chordPcs(c: Pick<Chord, 'rootPc' | 'quality'>): number[] {
 // voicings
 // ---------------------------------------------------------------------------------------------
 
+/** How chords are shaped on the keys (chosen per song). */
+export type VoicingStyle = 'close' | 'spread' | 'shell' | 'quartal' | 'cluster';
+
 export interface VoicingOptions {
   lo: number;
   hi: number;
+  /** default 'close' */
+  style?: VoicingStyle;
   /** drop the root (the bass has it) when the chord has at least 4 tones */
   rootless: boolean;
   /** maximum number of voices */
@@ -180,27 +196,73 @@ export function voiceLeadingCost(prev: readonly number[], next: readonly number[
   return cost;
 }
 
+/** Shapes (intervals above the root, may exceed an octave) for the open voicing styles. */
+function shapeFor(c: Pick<Chord, 'quality'>, style: VoicingStyle): number[] | null {
+  const ivs = QUALITY_INTERVALS[c.quality];
+  const has = (iv: number): boolean => ivs.includes(iv);
+  const third = has(3) ? 3 : has(4) ? 4 : 5;
+  const seventh = has(10) ? 10 : has(11) ? 11 : has(9) ? 9 : 7;
+  const colour = has(14) ? 14 : has(21) ? 21 : has(17) ? 17 : has(13) ? 13 : has(15) ? 15 : has(6) ? 6 : 7;
+  switch (style) {
+    case 'shell':
+      // guide tones low, one colour tone on top
+      return [third, seventh, colour + 12 > 26 ? colour : colour + 12].sort((a, b) => a - b);
+    case 'quartal':
+      // stacked fourths ("So What" style) built on the 3rd (major) or the root (minor / sus)
+      if (c.quality === 'm7b5') return null;
+      if (third === 4) return [4, 9, 14, 19];
+      return [0, 5, 10, 15, 19];
+    default:
+      return null;
+  }
+}
+
+function scoreVoicing(v: readonly number[], prev: readonly number[] | null, mid: number, allowClusters: boolean): number {
+  const centre = v.reduce((a, b) => a + b, 0) / v.length;
+  let cost = prev && prev.length ? voiceLeadingCost(prev, v) : 0;
+  cost += Math.abs(centre - mid) * (prev ? 0.15 : 1);
+  // a minor second between the two lowest voices sounds muddy on an e-piano
+  if (!allowClusters && v.length > 1 && v[1]! - v[0]! === 1) cost += 4;
+  return cost;
+}
+
 /**
- * Voice a chord in close position inside [lo, hi], choosing the inversion closest to `prev`
+ * Voice a chord inside [lo, hi] in the given style, choosing the placement closest to `prev`
  * (smooth voice leading) or nearest the middle of the range when there is no previous voicing.
  * Deterministic. Returns ascending MIDI notes.
  */
 export function voiceChord(c: Pick<Chord, 'rootPc' | 'quality'>, prev: readonly number[] | null, opts: VoicingOptions): number[] {
-  const pcs = selectTones(c, opts);
-  const cands = candidates(pcs, opts.lo, opts.hi);
+  const style = opts.style ?? 'close';
+  const mid = (opts.lo + opts.hi) / 2;
+  let cands: number[][] = [];
+
+  const shape = shapeFor(c, style);
+  if (shape) {
+    for (let base = opts.lo - 24; base <= opts.hi; base++) {
+      if (mod12(base) !== mod12(c.rootPc)) continue;
+      const v = shape.map((iv) => base + iv);
+      if (v[0]! >= opts.lo && v[v.length - 1]! <= opts.hi + 2) cands.push(v);
+    }
+  } else {
+    const pcs = selectTones(c, { ...opts, maxVoices: style === 'cluster' ? Math.max(opts.maxVoices, 5) : opts.maxVoices });
+    cands = candidates(pcs, opts.lo, opts.hi + (style === 'spread' ? 12 : 0));
+    if (style === 'spread') {
+      // drop-2: the second voice from the top goes down an octave
+      cands = cands
+        .filter((v) => v.length >= 4)
+        .map((v) => [...v.slice(0, -2), v[v.length - 1]!, v[v.length - 2]! - 12].sort((a, b) => a - b))
+        .filter((v) => v[0]! >= opts.lo - 5 && v[v.length - 1]! <= opts.hi + 2);
+    }
+  }
   if (cands.length === 0) {
-    // range too narrow: fall back to stacking upward from lo
+    if (style !== 'close') return voiceChord(c, prev, { ...opts, style: 'close' });
+    const pcs = selectTones(c, opts);
     return candidates(pcs, opts.lo, opts.hi + 12)[0] ?? pcs.map((pc) => opts.lo + mod12(pc - opts.lo));
   }
-  const mid = (opts.lo + opts.hi) / 2;
   let best = cands[0]!;
   let bestCost = Infinity;
   for (const v of cands) {
-    const centre = v.reduce((a, b) => a + b, 0) / v.length;
-    let cost = prev && prev.length ? voiceLeadingCost(prev, v) : 0;
-    cost += Math.abs(centre - mid) * (prev ? 0.15 : 1);
-    // a minor second between the two lowest voices sounds muddy on an e-piano
-    if (v.length > 1 && v[1]! - v[0]! === 1) cost += 4;
+    const cost = scoreVoicing(v, prev, mid, style === 'cluster');
     if (cost < bestCost - 1e-9) {
       best = v;
       bestCost = cost;
