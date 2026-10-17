@@ -146,6 +146,13 @@ export class Conductor implements PlaybackController {
     }
   }
 
+  /** Section / chord markers already composed but not yet heard (about 2 bars ahead). */
+  upcomingSections(): Array<{ beat: number; name: string; songIndex: number }> {
+    const out: Array<{ beat: number; name: string; songIndex: number }> = [];
+    for (const m of this.markers) if (m.type === 'section') out.push({ beat: m.beat, name: m.ev.name, songIndex: m.ev.songIndex });
+    return out;
+  }
+
   dispose(): void {
     this.stopTimers();
     if (this.flushTimer) clearTimeout(this.flushTimer);

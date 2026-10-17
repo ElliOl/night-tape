@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { ChaosLfo, speedFor } from '../services/chaos';
 import { useStore } from '../services/store';
 import { CatSim } from './cat';
+import { isCatAway } from '../services/wildcat';
 
 const TRAIL = 420;
 
@@ -80,6 +81,7 @@ export function ChaosScope() {
         ctx.shadowBlur = 0;
       }
       // the cat only hunts a dot that is actually moving
+      cat.away = isCatAway();
       cat.update(dt, running && amount > 0.01 ? dot : null, { w, h });
       cat.draw(ctx, { w, h });
       if (cat.caught > 0) {

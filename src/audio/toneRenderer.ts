@@ -25,6 +25,10 @@ export class ToneRenderer implements AudioRenderer {
   private mixer: MixerParams = { ...DEFAULT_MIXER };
   private tape: TapeParams = { ...DEFAULT_TAPE };
   private readonly muted = new Set<LayerId>();
+  /** layers muted by the wild cat (independent of the user's mutes) */
+  private readonly catMuted = new Set<LayerId>();
+  /** bumps on cancelAcid(): already scheduled acid steps of an older run do nothing */
+  private acidToken = 0;
   private filterMode: FilterMode = 'lowpass';
   private backlog: EventBatch[] = [];
   private resetChain: Promise<void> = Promise.resolve();
@@ -129,6 +133,12 @@ export class ToneRenderer implements AudioRenderer {
     // 2. silent: cancel everything and rewind
     s.stopAndRewind();
     const t1 = Tone.now();
+    // a new tape: the cat's mutes and any acid run end with the old one
+    g.master.acidEnd(t1);
+    for (const l of [...this.catMuted]) {
+      this.catMuted.delete(l);
+      g.setLayerMuted(l, this.muted.has(l), t1);
+    }
     g.releaseAll(t1 + 0.25);
     g.fx.setReturnsMuted(true, t1, 0.01);
     g.resetAutomationState();
@@ -166,7 +176,50 @@ export class ToneRenderer implements AudioRenderer {
   setLayerMuted(layer: LayerId, muted: boolean): void {
     if (muted) this.muted.add(layer);
     else this.muted.delete(layer);
-    this.graph?.setLayerMuted(layer, muted);
+    this.graph?.setLayerMuted(layer, this.muted.has(layer) || this.catMuted.has(layer));
+  }
+
+  /**
+   * Wild cat mute, applied exactly at `beat` on the audio clock (now if omitted or already past).
+   * A layer is silent if the user OR the cat muted it.
+   */
+  setCatMuted(layer: LayerId, muted: boolean, beat?: number): void {
+    const apply = (time: number): void => {
+      if (muted) this.catMuted.add(layer);
+      else this.catMuted.delete(layer);
+      this.graph?.setLayerMuted(layer, this.muted.has(layer) || this.catMuted.has(layer), time);
+    };
+    if (beat === undefined || !this.scheduler?.at(beat, apply)) apply(Tone.now());
+  }
+
+  clearCatMutes(): void {
+    for (const l of [...this.catMuted]) this.setCatMuted(l, false);
+  }
+
+  /**
+   * 303-style acid filter on the master for `bars` bars from `fromBeat`: every 16th the resonant low-pass snaps open
+   * and decays; `accents` (16 steps, repeating) open it further. Straight 16ths, exactly on the beat grid.
+   */
+  acid(fromBeat: number, bars: number, accents: readonly boolean[], intensity: number): void {
+    const s = this.scheduler;
+    const g = this.graph;
+    if (!s || !g) return;
+    const steps = bars * 16;
+    const spb = s.secondsPerBeat();
+    const token = ++this.acidToken;
+    const live = (): boolean => token === this.acidToken;
+    s.at(fromBeat, (time) => live() && g.master.acidBegin(time, steps * 0.25 * spb + 0.5));
+    for (let i = 0; i < steps; i++) {
+      const accent = !!accents[i % accents.length];
+      s.at(fromBeat + i * 0.25, (time) => live() && g.master.acidStep(time, 0.25 * s.secondsPerBeat(), accent, intensity));
+    }
+    s.at(fromBeat + steps * 0.25, (time) => live() && g.master.acidEnd(time));
+  }
+
+  /** Stop an acid run right away and hand the filter back to the knobs. */
+  cancelAcid(): void {
+    this.acidToken++;
+    this.graph?.master.acidEnd(Tone.now());
   }
 
   getSpectrum(): Float32Array {

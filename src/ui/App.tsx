@@ -4,6 +4,7 @@ import { tryGetController } from '../services/controller';
 import { Deck } from './Deck';
 import { ChaosPanel, FilterPanel, GroovePanel, MixerPanel, StationPanel, TapeInfo, TapePanel } from './Panels';
 import { Scene } from './Scene';
+import { WildCatOverlay } from './WildCatOverlay';
 import { errorMessage, nextTape, togglePlayback, useUiState } from './uiState';
 
 const isTyping = (t: EventTarget | null): boolean => {
@@ -118,6 +119,7 @@ export function App() {
         </div>
       </main>
       <footer className="footer">every song is composed in your browser from the seed · nothing is sampled</footer>
+      <WildCatOverlay />
       <Toast />
     </div>
   );

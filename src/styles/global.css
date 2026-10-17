@@ -459,3 +459,21 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   .cassette__reel.is-spinning { animation-play-state: paused; }
 }
+
+/* ---------------------------------------------------------------- wild cat */
+.wildcat { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 15; }
+.chip--wild.is-active { color: #1a1612; background: var(--amber); border-color: #8a5e18; }
+.chip--wild.is-active .chip__led { background: #1a1612; box-shadow: none; }
+.fader.is-cat-muted .fader__label { color: var(--amber2); text-decoration: line-through; }
+.fader__paw { font-size: 11px; line-height: 1; filter: saturate(0.6); }
+.cat-swat { animation: cat-swat 0.45s ease-out; }
+@keyframes cat-swat {
+  0% { transform: translate(0, 0) rotate(0); }
+  25% { transform: translate(-2px, 1px) rotate(-4deg); }
+  50% { transform: translate(2px, -1px) rotate(3deg); }
+  75% { transform: translate(-1px, 0) rotate(-1.5deg); }
+  100% { transform: translate(0, 0) rotate(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cat-swat { animation: none; }
+}

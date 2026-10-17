@@ -5,6 +5,7 @@
  */
 
 type CatState = 'stalk' | 'windup' | 'air' | 'land' | 'proud' | 'watch' | 'sleep';
+export type CatPose = CatState;
 
 const GRAVITY = 900; // px/s²
 const POUNCE_TIME = 0.45; // s of flight aimed at the dot
@@ -141,6 +142,7 @@ export class CatSim {
   }
 
   draw(ctx: CanvasRenderingContext2D, b: Bounds): void {
+    if (this.away) return;
     const floor = b.h - 6;
     ctx.save();
     ctx.translate(this.x, floor - this.y);
@@ -149,6 +151,30 @@ export class CatSim {
       ctx.restore();
       return;
     }
+    this.paintBody(ctx);
+    ctx.restore();
+
+    // sparkle after a catch
+    if (this.sparkle > 0) {
+      const a = this.sparkle / 0.6;
+      ctx.save();
+      ctx.translate(this.x + this.facing * 14, floor - this.y - 24);
+      ctx.strokeStyle = `rgba(255,214,106,${a.toFixed(3)})`;
+      ctx.lineWidth = 1.2;
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2 + this.time * 3;
+        const r0 = 4 + (1 - a) * 6;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(ang) * r0, Math.sin(ang) * r0);
+        ctx.lineTo(Math.cos(ang) * (r0 + 4), Math.sin(ang) * (r0 + 4));
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  /** Cat body at the origin (feet at y = 0), facing this.facing, in this.state's pose. */
+  private paintBody(ctx: CanvasRenderingContext2D): void {
     ctx.scale(this.facing, 1);
     const t = this.time;
     const crouch = this.state === 'windup' ? 1 : this.state === 'land' ? 0.6 : 0;
@@ -234,26 +260,30 @@ export class CatSim {
       ctx.lineTo(hx + 6, hy + 1);
       ctx.stroke();
     }
-    ctx.restore();
-
-    // sparkle after a catch
-    if (this.sparkle > 0) {
-      const a = this.sparkle / 0.6;
-      ctx.save();
-      ctx.translate(this.x + this.facing * 14, floor - this.y - 24);
-      ctx.strokeStyle = `rgba(255,214,106,${a.toFixed(3)})`;
-      ctx.lineWidth = 1.2;
-      for (let i = 0; i < 6; i++) {
-        const ang = (i / 6) * Math.PI * 2 + this.time * 3;
-        const r0 = 4 + (1 - a) * 6;
-        ctx.beginPath();
-        ctx.moveTo(Math.cos(ang) * r0, Math.sin(ang) * r0);
-        ctx.lineTo(Math.cos(ang) * (r0 + 4), Math.sin(ang) * (r0 + 4));
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
   }
+
+  /**
+   * Draw the cat at (x, y) (feet, canvas coords) in a given pose, independent of the hunting simulation.
+   * Used by the wild-cat overlay when the cat travels across the page.
+   */
+  drawPose(ctx: CanvasRenderingContext2D, x: number, y: number, pose: CatPose, facing: number, time: number, walk = 0): void {
+    const saved = { state: this.state, facing: this.facing, time: this.time, walk: this.walk, lookX: this.lookX, lookY: this.lookY };
+    this.state = pose;
+    this.facing = facing >= 0 ? 1 : -1;
+    this.time = time;
+    this.walk = walk;
+    this.lookX = this.facing;
+    this.lookY = 0;
+    ctx.save();
+    ctx.translate(x, y);
+    if (pose === 'sleep') this.drawSleeping(ctx);
+    else this.paintBody(ctx);
+    ctx.restore();
+    Object.assign(this, saved);
+  }
+
+  /** Hide / show the hunting cat (the wild cat is away on an errand). */
+  away = false;
 
   private drawSleeping(ctx: CanvasRenderingContext2D): void {
     const breathe = 1 + Math.sin(this.time * 1.8) * 0.05;

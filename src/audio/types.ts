@@ -23,6 +23,12 @@ export interface AudioRenderer {
   setMixer(mixer: MixerParams): void;
   setTape(tape: TapeParams): void;
   setLayerMuted(layer: LayerId, muted: boolean): void;
+  /** Wild cat: mute/unmute a layer exactly at `beat` (independent of the user's mutes). */
+  setCatMuted(layer: LayerId, muted: boolean, beat?: number): void;
+  clearCatMutes(): void;
+  /** Wild cat: 303-style filter squelch on the master for `bars` bars from `fromBeat`. */
+  acid(fromBeat: number, bars: number, accents: readonly boolean[], intensity: number): void;
+  cancelAcid(): void;
   setFilterMode(mode: FilterMode): void;
 
   /** dB spectrum of the master output (reused array). */

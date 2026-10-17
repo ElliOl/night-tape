@@ -68,6 +68,8 @@ export function sanitizeChaos(raw: unknown): ChaosParams {
     filter: bool(raw.filter, f.filter),
     tape: bool(raw.tape, f.tape),
     groove: bool(raw.groove, f.groove),
+    wild: bool(raw.wild, f.wild),
+    wildness: unit(raw.wildness, f.wildness),
   };
 }
 

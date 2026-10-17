@@ -52,6 +52,10 @@ export interface ChaosParams {
   filter: boolean;
   tape: boolean;
   groove: boolean;
+  /** wild cat: the cat leaves the scope and plays with mutes, stations and an acid filter */
+  wild: boolean;
+  /** how wild: 1 = reacts 1:1 to every swing of the LFO, lower = only to big ones, less often */
+  wildness: number;
 }
 
 /** Modulation targets of the chaos LFO. */
@@ -97,4 +101,6 @@ export const DEFAULT_CHAOS: ChaosParams = {
   filter: true,
   tape: true,
   groove: true,
+  wild: false,
+  wildness: 0.5,
 };

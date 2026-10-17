@@ -4,6 +4,7 @@ import { useStore } from './services/store';
 import { loadLast, startPersistence } from './services/persist';
 import { setController } from './services/controller';
 import { startModulator } from './services/modulator';
+import { startWildCat } from './services/wildcat';
 import { setVisualizerSource } from './ui/visualizerSource';
 import { createRenderer } from './audio/toneRenderer';
 import { Conductor } from './engine/conductor';
@@ -23,6 +24,14 @@ const renderer = createRenderer();
 const conductor = new Conductor(renderer, () => new LocalEngine());
 setController(conductor);
 startModulator();
+startWildCat({
+  getBeat: () => renderer.getBeat(),
+  setCatMuted: (l, m, beat) => renderer.setCatMuted(l, m, beat),
+  clearCatMutes: () => renderer.clearCatMutes(),
+  acid: (from, bars, accents, intensity) => renderer.acid(from, bars, accents, intensity),
+  cancelAcid: () => renderer.cancelAcid(),
+  upcomingSections: () => conductor.upcomingSections(),
+});
 setVisualizerSource({ getSpectrum: () => renderer.getSpectrum(), getLevel: () => renderer.getLevel() });
 // dev-console helpers
 Object.assign(window as unknown as Record<string, unknown>, { nightTape: { conductor, renderer, store: useStore } });

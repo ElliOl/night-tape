@@ -31,7 +31,7 @@ const START_PREROLL = 0.05;
  */
 export class Scheduler {
   private readonly pending = new Map<number, number>(); // transport event id -> exact tick
-  /** pending tempo changes: never cancelled by cancelFrom() (their batches are not re-sent) */
+  /** pending tempo changes and other one-off callbacks: never cancelled by cancelFrom() (nothing re-sends them) */
   private readonly tempoIds = new Set<number>();
   private maxBeat = 0;
   private targetBpm: number | null = null;
@@ -210,6 +210,23 @@ export class Scheduler {
     }, `${tick}i`) as unknown as number;
     this.pending.set(id, tick);
     return id;
+  }
+
+  /**
+   * Run `fn(time)` at an absolute beat on the audio clock (sample accurate). Used for performance gestures that are not
+   * part of the composition (cat mutes, acid filter). They survive cancelFrom(). Returns false if the beat has passed.
+   */
+  at(beat: number, fn: (time: number) => void): boolean {
+    if (this.disposed) return false;
+    const id = this.scheduleAt(beat, fn);
+    if (id === null) return false;
+    this.tempoIds.add(id);
+    return true;
+  }
+
+  /** Seconds per beat right now. */
+  secondsPerBeat(): number {
+    return 60 / this.transport.bpm.value;
   }
 
   /**

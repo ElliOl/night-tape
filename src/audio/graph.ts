@@ -75,8 +75,8 @@ export class AudioGraph {
     this.instruments.drums.setPatch(palette.drums, rampSeconds, palette.drumTune ?? 0, time);
   }
 
-  setLayerMuted(layer: LayerId, muted: boolean): void {
-    this.strips[layer].setAudible(!muted, Tone.now(), 0.04);
+  setLayerMuted(layer: LayerId, muted: boolean, time = Tone.now()): void {
+    this.strips[layer].setAudible(!muted, time, 0.03);
   }
 
   setMood(mood: MoodId, rampSeconds = MOOD_RAMP_SECONDS): void {

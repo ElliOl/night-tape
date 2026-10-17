@@ -14,6 +14,8 @@ interface KnobProps {
   title?: string;
   /** where the chaos LFO is currently pushing this knob (0..1); drawn as a moving dot */
   mod?: number;
+  /** marks the knob as something the wild cat can land on */
+  catTarget?: string;
 }
 
 const SWEEP = 270; // degrees from min to max
@@ -22,7 +24,7 @@ const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 /**
  * Rotary knob (vertical drag, wheel, arrow keys; double-click resets). Accessible as an ARIA slider.
  */
-function KnobImpl({ label, value, onChange, display, defaultValue, size = 'sm', disabled, title, mod }: KnobProps) {
+function KnobImpl({ label, value, onChange, display, defaultValue, size = 'sm', disabled, title, mod, catTarget }: KnobProps) {
   const id = useId();
   const drag = useRef<{ y: number; v: number; id: number } | null>(null);
   const dialRef = useRef<HTMLDivElement>(null);
@@ -83,6 +85,7 @@ function KnobImpl({ label, value, onChange, display, defaultValue, size = 'sm', 
     <div
       className={`knob knob--${size}${disabled ? ' is-disabled' : ''}`}
       title={title}
+      data-cat-target={catTarget}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

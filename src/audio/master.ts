@@ -68,6 +68,8 @@ export class TapeMaster {
   private drive: number;
   private mode: FilterMode = 'lowpass';
   private lastTape: TapeParams = { ...DEFAULT_TAPE };
+  /** audio time until which the acid filter owns the master filter (setTape leaves it alone) */
+  private acidUntil = 0;
 
   constructor(mood: MoodId, opts: MasterOptions & { volume?: number } = {}) {
     const sr = Tone.getContext().sampleRate;
@@ -130,14 +132,53 @@ export class TapeMaster {
     // more crush also lowers the "sample rate" (darker, more aliasing-like)
     rampParam(this.crushLp.frequency, logMap(1 - c, 2200, 9000), time, rampSeconds);
     this.lastTape = { ...tape };
+    if (Tone.now() < this.acidUntil) return;
     const q = resonanceQ(tape.resonance, this.mode);
     rampParam(this.userFilter.frequency, safeCutoff(cutoffHz(tape.cutoff), sr), time, rampSeconds);
     rampParam(this.userFilter.Q, q, time, rampSeconds);
     rampParam(this.userTrim.gain, dbToGain(resonanceTrimDb(q, this.mode)), time, rampSeconds);
   }
 
+  /** Acid section starts at `time` and lasts `seconds`: the master filter becomes a squelchy resonant low-pass. */
+  acidBegin(time: number, seconds: number): void {
+    this.acidUntil = Math.max(this.acidUntil, time + seconds);
+    this.userFilter.type = 'lowpass';
+    this.userFilter.frequency.cancelScheduledValues(time);
+    this.userFilter.Q.cancelScheduledValues(time);
+    this.userTrim.gain.cancelScheduledValues(time);
+    this.userTrim.gain.setValueAtTime(dbToGain(-5), time);
+  }
+
+  /**
+   * One 16th of TB-303 style filter: the cutoff snaps open and decays over the step. Accented steps open further and
+   * ring harder. `intensity` 0..1 scales how wide it opens.
+   */
+  acidStep(time: number, seconds: number, accent: boolean, intensity: number): void {
+    const sr = Tone.getContext().sampleRate;
+    const base = 260 + 160 * intensity;
+    const peak = base * (accent ? 9 + 7 * intensity : 4 + 3 * intensity);
+    const f = this.userFilter.frequency;
+    f.setValueAtTime(safeCutoff(peak, sr), time);
+    f.exponentialRampToValueAtTime(safeCutoff(base, sr), time + seconds * 0.92);
+    this.userFilter.Q.setValueAtTime(accent ? 15 : 10, time);
+  }
+
+  /** Hand the filter back to the knobs (smoothly) at `time`. */
+  acidEnd(time: number): void {
+    this.acidUntil = 0;
+    this.userFilter.type = this.mode;
+    const sr = Tone.getContext().sampleRate;
+    const q = resonanceQ(this.lastTape.resonance, this.mode);
+    this.userFilter.frequency.cancelScheduledValues(time);
+    this.userFilter.Q.cancelScheduledValues(time);
+    rampParam(this.userFilter.frequency, safeCutoff(cutoffHz(this.lastTape.cutoff), sr), time, 0.4);
+    rampParam(this.userFilter.Q, q, time, 0.4);
+    rampParam(this.userTrim.gain, dbToGain(resonanceTrimDb(q, this.mode)), time, 0.4);
+  }
+
   setFilterMode(mode: FilterMode): void {
     this.mode = mode;
+    if (Tone.now() < this.acidUntil) return; // applied when the acid section ends
     this.userFilter.type = mode;
     this.setTape(this.lastTape, Tone.now(), 0.05);
   }

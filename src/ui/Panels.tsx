@@ -4,6 +4,7 @@ import {
   type FilterMode, type LayerId, type ModTarget, type TapeParams,
 } from '@shared/index';
 import { applyMod } from '../services/chaos';
+import { releaseCatMute } from '../services/wildcat';
 import { ChaosScope } from './ChaosScope';
 import { MOODS } from '../composition/moods';
 import { TEMPO_MAX, TEMPO_MIN } from '../engine/localEngine';
@@ -28,6 +29,7 @@ export function StationPanel() {
             role="radio"
             aria-checked={mood === id}
             className={`station${mood === id ? ' is-active' : ''}`}
+            data-cat-target={`station-${id}`}
             onClick={() => setParams({ mood: id })}
           >
             <span className="station__led" aria-hidden="true" />
@@ -168,6 +170,7 @@ export function FilterPanel() {
       <div className="knobs knobs--center">
         <Knob
           size="lg"
+          catTarget="cutoff"
           label="Cutoff"
           value={cutoff}
           mod={cutoffMod}
@@ -192,6 +195,7 @@ export function ChaosPanel() {
   const setChaos = useStore((s) => s.setChaos);
   const onAmount = useCallback((v: number) => setChaos({ amount: v }), [setChaos]);
   const onRate = useCallback((v: number) => setChaos({ rate: v }), [setChaos]);
+  const onWildness = useCallback((v: number) => setChaos({ wildness: v }), [setChaos]);
   return (
     <section className="panel panel--chaos" aria-labelledby="chaos-h">
       <h2 className="panel__title" id="chaos-h">Cat</h2>
@@ -201,6 +205,14 @@ export function ChaosPanel() {
           <div className="knobs">
             <Knob label="Amount" value={chaos.amount} defaultValue={DEFAULT_CHAOS.amount} onChange={onAmount} title="How far it pushes the knobs (0 = off)" />
             <Knob label="Rate" value={chaos.rate} defaultValue={DEFAULT_CHAOS.rate} onChange={onRate} title="Slow drift to restless" />
+            <Knob
+              label="Wild"
+              value={chaos.wildness}
+              defaultValue={DEFAULT_CHAOS.wildness}
+              onChange={onWildness}
+              disabled={!chaos.wild}
+              title="How wild: 100% follows every swing of the LFO, lower only the big ones"
+            />
           </div>
           <div className="chaos__targets">
             {CHAOS_GROUPS.map((g) => (
@@ -216,6 +228,16 @@ export function ChaosPanel() {
                 {g.label}
               </button>
             ))}
+            <button
+              type="button"
+              title="The cat leaves the scope and plays with mutes, stations and an acid filter, in time with the music"
+              aria-pressed={chaos.wild}
+              className={`chip chip--wild${chaos.wild ? ' is-active' : ''}`}
+              onClick={() => setChaos({ wild: !chaos.wild })}
+            >
+              <span className="chip__led" aria-hidden="true" />
+              Wild cat
+            </button>
           </div>
         </div>
       </div>
@@ -225,9 +247,21 @@ export function ChaosPanel() {
 
 const LAYER_LABEL: Record<LayerId, string> = { keys: 'Keys', pad: 'Pad', bass: 'Bass', melody: 'Lead', drums: 'Drums', texture: 'Room' };
 
-function Fader({ label, value, onChange, muted, onMute }: { label: string; value: number; onChange(v: number): void; muted?: boolean; onMute?(): void }) {
+interface FaderProps {
+  label: string;
+  value: number;
+  onChange(v: number): void;
+  muted?: boolean;
+  /** muted by the wild cat */
+  catMuted?: boolean;
+  onMute?(): void;
+  catTarget?: string;
+}
+
+function Fader({ label, value, onChange, muted, catMuted, onMute, catTarget }: FaderProps) {
+  const off = muted || catMuted;
   return (
-    <div className={`fader${muted ? ' is-muted' : ''}`}>
+    <div className={`fader${off ? ' is-muted' : ''}${catMuted ? ' is-cat-muted' : ''}`}>
       <input
         className="fader__input"
         type="range"
@@ -241,8 +275,15 @@ function Fader({ label, value, onChange, muted, onMute }: { label: string; value
       />
       <div className="fader__label">{label}</div>
       {onMute ? (
-        <button type="button" className={`fader__mute${muted ? ' is-active' : ''}`} aria-pressed={!!muted} aria-label={`Mute ${label}`} onClick={onMute}>
-          <span className="fader__led" aria-hidden="true" />
+        <button
+          type="button"
+          className={`fader__mute${off ? ' is-active' : ''}`}
+          aria-pressed={!!off}
+          aria-label={catMuted ? `${label} muted by the cat (click to unmute)` : `Mute ${label}`}
+          data-cat-target={catTarget}
+          onClick={onMute}
+        >
+          {catMuted ? <span className="fader__paw" aria-hidden="true">🐾</span> : <span className="fader__led" aria-hidden="true" />}
         </button>
       ) : (
         <div className="fader__mute fader__mute--spacer" />
@@ -256,12 +297,23 @@ export function MixerPanel() {
   const muted = useStore((s) => s.muted);
   const setLevel = useStore((s) => s.setMixerLevel);
   const setMuted = useStore((s) => s.setMuted);
+  const catMuted = useStore((s) => s.catMuted);
   return (
     <section className="panel panel--mixer" aria-labelledby="mixer-h">
       <h2 className="panel__title" id="mixer-h">Mixer</h2>
       <div className="faders">
         {LAYER_IDS.map((l) => (
-          <Fader key={l} label={LAYER_LABEL[l]} value={mixer[l]} muted={!!muted[l]} onMute={() => setMuted(l, !muted[l])} onChange={(v) => setLevel(l, v)} />
+          <Fader
+            key={l}
+            label={LAYER_LABEL[l]}
+            value={mixer[l]}
+            muted={!!muted[l]}
+            catMuted={!!catMuted[l]}
+            catTarget={`mute-${l}`}
+            // a click on something the cat muted brings it back (the user always wins)
+            onMute={() => (catMuted[l] ? releaseCatMute(l) : setMuted(l, !muted[l]))}
+            onChange={(v) => setLevel(l, v)}
+          />
         ))}
         <Fader label="Master" value={mixer.master} onChange={(v) => setLevel('master', v)} />
       </div>
