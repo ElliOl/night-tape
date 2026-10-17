@@ -195,7 +195,7 @@ export function ChaosPanel() {
   const onRate = useCallback((v: number) => setChaos({ rate: v }), [setChaos]);
   return (
     <section className="panel panel--chaos" aria-labelledby="chaos-h">
-      <h2 className="panel__title" id="chaos-h">Cat LFO</h2>
+      <h2 className="panel__title" id="chaos-h">Cat</h2>
       <div className="chaos">
         <ChaosScope />
         <div className="chaos__controls">
