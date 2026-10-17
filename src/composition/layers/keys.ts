@@ -2,9 +2,14 @@
  * Keys comping. Each song draws 2-3 rhythms from its station's vocabulary (held, Charleston, pushes, stabs, bossa,
  * pulses, arpeggios...); chords are lightly rolled, the top voice sings a little louder, and "push" bars anticipate
  * the next chord on the last off-beat. In a keys solo the left hand thins out and renderSolo() plays the line.
+ *
+ * On top of the rhythm, every section has an articulation that follows what the section is doing: short stabs in a
+ * drop, chords left to ring through an intro or breakdown, a two-note shell under the lead, or just a single note
+ * hanging in the air. Sections with the same name keep the same articulation, so the track stays one piece.
  */
 import type { NoteEvent } from '@shared/index';
-import { chance, pick, stream } from '../rng';
+import { harmonyAt } from '../form';
+import { chance, pick, stream, weightedPick } from '../rng';
 import type { CompStyle } from '../moods';
 import {
   barStart, chordChangesNext, drift, energy, humanize, isChordStartBar, isSectionLastBar, nextSlot, note, slot, step16, style,
@@ -32,6 +37,64 @@ const COMPS: Record<CompStyle, readonly Hit[]> = {
 };
 
 const NO_PUSH = new Set<CompStyle>(['whole', 'rolled', 'arp', 'pulse']);
+
+/** How the chords are played in a section. 'comp' = the comping rhythm as written. */
+export type Articulation = 'comp' | 'stab' | 'ring' | 'shell' | 'single';
+const ARTICULATIONS: readonly Articulation[] = ['comp', 'stab', 'ring', 'shell', 'single'];
+
+/** Articulation weights for a section: quiet parts hang and thin out, driving parts stab, the song's ring tilts it. */
+export function articulationWeights(name: string, songRing: number, melodyOn: boolean): Array<readonly [Articulation, number]> {
+  let w: Record<Articulation, number>;
+  switch (name) {
+    case 'Intro':
+    case 'Dawn':
+      w = { comp: 1, stab: 0, ring: 3, shell: 2, single: 2 };
+      break;
+    case 'Break':
+      w = { comp: 0.5, stab: 1, ring: 3, shell: 2, single: 3 };
+      break;
+    case 'Outro':
+    case 'Dusk':
+      w = { comp: 1, stab: 0.5, ring: 3, shell: 1, single: 2 };
+      break;
+    case 'Bridge':
+      w = { comp: 2, stab: 1, ring: 2, shell: 2, single: 0.5 };
+      break;
+    case 'Groove':
+    case 'Drop':
+    case 'Hook':
+      w = { comp: 3, stab: 3, ring: 1, shell: 1, single: 0 };
+      break;
+    default:
+      w = { comp: 3, stab: 1, ring: 2, shell: 1.5, single: 0 };
+  }
+  w.ring *= 0.5 + songRing * 1.5;
+  w.stab *= 1.4 - songRing;
+  // a lone keys note would fight the lead line
+  if (melodyOn) w.single = 0;
+  return ARTICULATIONS.map((a) => [a, w[a]] as const);
+}
+
+export function sectionArticulation(ctx: BarContext): Articulation {
+  const key = 'art:' + ctx.song.index + ':' + ctx.section.index;
+  const cached = ctx.cache.get(key) as Articulation | undefined;
+  if (cached) return cached;
+  // decided once per section name, so a returning Theme or Drop is played the same way
+  const rng = stream(ctx.seed, 'articulation', ctx.song.index, ctx.section.name);
+  let art = weightedPick(rng, articulationWeights(ctx.section.name, style(ctx).ring, false));
+  if (art === 'single' && ctx.section.layers.melody) art = 'shell';
+  // sparse sections strike once per chord: a lone stab there would just be a blip
+  if (art === 'stab' && isSparse(ctx)) art = 'ring';
+  ctx.cache.set(key, art);
+  return art;
+}
+
+/** Fewer fingers: a two-note shell (lowest and top voice) or the top voice alone. */
+function thin(voicing: readonly number[], art: Articulation): number[] {
+  if (art === 'single') return voicing.slice(-1);
+  if (art === 'shell' && voicing.length >= 3) return [voicing[0]!, voicing[voicing.length - 1]!];
+  return [...voicing];
+}
 /** broken-chord order over eight 8ths (indices into the voicing, wrapped) */
 const ARP_ORDER = [0, 1, 2, 3, 2, 1, 2, 3];
 
@@ -52,6 +115,8 @@ const isKeysSolo = (ctx: BarContext): boolean => ctx.section.name === 'Solo' && 
 export function pushesInto(ctx: BarContext, bar: number): boolean {
   const comp = sectionComp(ctx);
   if (NO_PUSH.has(comp)) return false;
+  const art = sectionArticulation(ctx);
+  if (art === 'ring' || art === 'single') return false;
   const p = comp === 'push' ? 0.85 : 0.1 + drift(ctx) * 0.45;
   return chance(stream(ctx.seed, 'push', bar), p);
 }
@@ -115,6 +180,23 @@ export function renderKeys(ctx: BarContext): NoteEvent[] {
     return out;
   }
 
+  const art = sectionArticulation(ctx);
+  const voicing = thin(cur.keys, art);
+
+  if (art === 'ring' || art === 'single') {
+    // strike on the chord change and let it hang until the chord (or the section) ends; now and then a soft
+    // re-strike or, for a single note, a neighbouring voice answering on beat 3
+    const h = harmonyAt(ctx.song, ctx.rel, ctx.params.complexity);
+    const left = Math.max(1, Math.min(h.barsLeft, ctx.section.bars - ctx.inSection));
+    const hold = left * 4 + 0.3 + ring * 0.6;
+    if (chordStart) play(voicing, 0, hold, baseVel * (art === 'single' ? 1 : 0.95));
+    else if (chance(rng, art === 'single' ? 0.35 : 0.15 + e * 0.25)) {
+      const answer = art === 'single' && cur.keys.length > 1 ? [cur.keys[cur.keys.length - 2]!] : voicing;
+      play(answer, step16(8, swing), left * 4 - 2 + 0.3, baseVel * 0.7);
+    }
+    return out;
+  }
+
   let hits: readonly Hit[] = COMPS[comp];
   // slow progressions: held styles only strike on chord changes
   if (sparse || (!chordStart && (comp === 'whole' || comp === 'rolled'))) hits = chordStart ? [[0, 16]] : [];
@@ -122,6 +204,12 @@ export function renderKeys(ctx: BarContext): NoteEvent[] {
     const alt = pick(rng, style(ctx).comps);
     if (alt !== 'arp') hits = COMPS[alt];
   }
+  // stabs need something to stab: held patterns become a short Charleston
+  if (art === 'stab' && !sparse && hits.length === 1) hits = COMPS.charleston;
+  // the last bar of a 4-bar phrase sometimes takes a breath: one chord, left to ring
+  const breath = !sparse && ctx.inSection % 4 === 3 && !isSectionLastBar(ctx) && chance(rng, 0.12 + drift(ctx) * 0.2);
+  if (breath) hits = [[0, 16]];
+  const hang = breath ? Math.max(ring, 0.8) : art === 'stab' ? 0 : ring;
 
   // previous bar pushed into this one: its downbeat is already sounding
   const pushedIn = !sparse && ctx.inSection > 0 && chordStart && pushesInto(ctx, ctx.bar - 1);
@@ -136,17 +224,19 @@ export function renderKeys(ctx: BarContext): NoteEvent[] {
     if (s + len >= 16) endAt = 4;
     // ringing songs hold each chord into the next hit (and, on a held chord, a little past the bar line)
     const next = hits[j + 1];
-    const ringTo = next ? step16(next[0], swing) : chordChangesNext(ctx) ? 4 : 4 + ring * 0.6;
-    if (ring > 0 && ringTo > endAt) endAt += (ringTo - endAt) * ring;
+    const ringTo = next ? step16(next[0], swing) : chordChangesNext(ctx) ? 4 : 4 + hang * 0.6;
+    if (hang > 0 && ringTo > endAt) endAt += (ringTo - endAt) * hang;
     if (pushOut && s + len > 14) endAt = Math.min(endAt, step16(14, swing));
-    const len16 = (endAt - at) * (0.94 + ring * 0.06);
+    let len16 = (endAt - at) * (0.94 + hang * 0.06);
+    // a stab is cut short and hit a little harder
+    if (art === 'stab' && !breath) len16 = Math.min(len16, 0.28 + rng.next() * 0.17);
     if (len16 < 0.12) return;
-    play(cur.keys, at, len16, baseVel * (s === 0 ? 1 : 0.85));
+    play(voicing, at, len16, baseVel * (s === 0 ? 1 : 0.85) * (art === 'stab' ? 1.08 : 1));
   });
 
   if (pushOut) {
     const at = step16(14, swing);
-    play(nextSlot(ctx).keys, at, 4 - at + 0.45 + ring * 1.5, baseVel * 0.95);
+    play(thin(nextSlot(ctx).keys, art), at, art === 'stab' ? 0.35 : 4 - at + 0.45 + ring * 1.5, baseVel * 0.95);
   }
   return out;
 }
