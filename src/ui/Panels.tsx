@@ -206,7 +206,7 @@ export function ChaosPanel() {
             <Knob label="Amount" value={chaos.amount} defaultValue={DEFAULT_CHAOS.amount} onChange={onAmount} title="How far it pushes the knobs (0 = off)" />
             <Knob label="Rate" value={chaos.rate} defaultValue={DEFAULT_CHAOS.rate} onChange={onRate} title="Slow drift to restless" />
             <Knob
-              label="Wild cat"
+              label="Wild"
               value={chaos.wildness}
               defaultValue={DEFAULT_CHAOS.wildness}
               onChange={onWildness}
