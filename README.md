@@ -24,7 +24,7 @@ Keys: `Space` play / pause, `N` new tape (new random seed).
 | Groove (live) | Energy, Jazz (triads .. 13th chords, melody density), Drift (bar-to-bar variation), Swing (straight .. hard shuffle), Tempo (auto per song or 40-140 BPM). Changes re-compose the already-scheduled music, so they are heard within about half a beat. |
 | Filter        | LP / BP / HP, Cutoff (40 Hz - 20 kHz), Resonance |
 | Tape          | Warmth (tube drive + tone), Wow (wow & flutter), Crush (sample-rate + bit reduction), Space (dry .. cathedral, then full echo) |
-| Ambience      | Vinyl crackle, Rain, Hiss |
+| Ambience      | Wear (dust crackle, rumble, tape dropouts), Rain (a few drops .. downpour), Hiss |
 | Cat           | Amount, Rate, and which groups it may move (Filter, Tape, Groove). A Lorenz attractor drifts the knobs smoothly and never repeats; it leans darker in breaks and brighter in solos. Orange dots on the knobs show where it is pushing, and a cat chases the dot. |
 | Mixer         | Keys, Pad, Bass, Lead, Drums, Room (ambience) + master, with mutes |
 | Cassette      | Seed (reproducible tapes), tracklist with each song's sound, 32-bar WAV export |

@@ -3,6 +3,7 @@ import type { FilterMode, MoodId, TapeParams } from '@shared/index';
 import { DEFAULT_TAPE } from '@shared/index';
 import { TUBE_RANGE, clamp01, dbToGain, faderToGain, logMap, masterFilterHz, safeCutoff, saturationCurve, tubeCurve } from './mapping';
 import { Crusher, crushSettings } from './crusher';
+import { dropoutSamples } from './instruments/textureBuffers';
 import { getPreset } from './presets';
 import { rampParam } from './instruments/instrument';
 
@@ -35,6 +36,11 @@ export const warmthSettings = (warmth: number): { drive: number; trim: number; l
     lpHz: logMap(1 - Math.min(w, OVERDRIVE_FROM), 4500, 20000) * (1 + 0.6 * od),
   };
 };
+/** wear 0..1 -> tape dropouts: how far the level dips (0..1 of it) and how dull it goes (Hz pulled off 18 kHz). */
+export const wearDropouts = (wear: number): { dip: number; dullHz: number } => {
+  const w = clamp01(wear);
+  return { dip: 0.8 * Math.pow(w, 1.6), dullHz: 15500 * Math.pow(w, 1.1) };
+};
 /** wow 0..1 -> vibrato depth of the slow (wow) and fast (flutter) modulators (max delay 12 ms / 3 ms). */
 export const wowDepths = (wow: number): { wow: number; flutter: number } => {
   const x = clamp01(wow);
@@ -56,7 +62,7 @@ export const resonanceTrimDb = (q: number, mode: FilterMode = 'lowpass'): number
  * Master "tape machine":
  *   input -> 35 Hz low-cut -> (dry | decimator path) -> wow -> flutter -> tube (warmth) -> tape saturation
  *   -> warmth tone (low shelf, high shelf, low-pass)
- *   -> transition low-pass ('master.filter') -> glue compressor -> limiter -> fade -> volume -> analysers + out
+ *   -> transition low-pass ('master.filter') -> glue compressor -> wear dropouts (after the compressor so it can't undo the dips) -> limiter -> fade -> volume -> analysers + out
  */
 export class TapeMaster {
   readonly input: Tone.Gain;
@@ -70,6 +76,11 @@ export class TapeMaster {
   private readonly sum: Tone.Gain;
   private readonly wow: Tone.Vibrato;
   private readonly flutter: Tone.Vibrato;
+  private readonly wearGain: Tone.Gain;
+  private readonly wearLp: Tone.Filter;
+  private readonly dropouts: Tone.Player;
+  private readonly dipDepth: Tone.Gain;
+  private readonly dullDepth: Tone.Gain;
   private readonly tubeDrive: Tone.Gain;
   private readonly tube: Tone.WaveShaper;
   private readonly tubeTrim: Tone.Gain;
@@ -113,6 +124,21 @@ export class TapeMaster {
     const d = wowDepths(DEFAULT_TAPE.wow);
     this.wow = new Tone.Vibrato({ frequency: t.wowRate, depth: d.wow, maxDelay: 0.012, type: 'sine' });
     this.flutter = new Tone.Vibrato({ frequency: t.flutterRate, depth: d.flutter, maxDelay: 0.003, type: 'triangle' });
+    // wear: a looping dropout envelope modulates level and brightness (worn spots passing the head)
+    this.wearGain = new Tone.Gain(1);
+    this.wearLp = new Tone.Filter({ type: 'lowpass', frequency: 18000, Q: 0.5, rolloff: -12 });
+    const dropBuf = Tone.getContext().createBuffer(1, Math.floor(sr * 13.7), sr);
+    dropBuf.getChannelData(0).set(dropoutSamples(sr, 13.7, 0xd20b, 0.7));
+    this.dropouts = new Tone.Player(new Tone.ToneAudioBuffer(dropBuf));
+    this.dropouts.loop = true;
+    const wd = wearDropouts(DEFAULT_TAPE.vinyl);
+    this.dipDepth = new Tone.Gain(-wd.dip);
+    this.dullDepth = new Tone.Gain(-wd.dullHz);
+    this.dropouts.connect(this.dipDepth);
+    this.dropouts.connect(this.dullDepth);
+    this.dipDepth.connect(this.wearGain.gain);
+    this.dullDepth.connect(this.wearLp.frequency);
+    this.dropouts.start();
     const w0 = warmthSettings(DEFAULT_TAPE.warmth);
     this.tubeDrive = new Tone.Gain(w0.drive / TUBE_RANGE);
     this.tube = new Tone.WaveShaper(tubeCurve(), 4096);
@@ -142,7 +168,7 @@ export class TapeMaster {
     this.crushWet.connect(this.sum);
     this.sum.chain(
       this.wow, this.flutter, this.tubeDrive, this.tube, this.tubeTrim, this.dcBlock, this.saturator,
-      this.warmLow, this.warmHigh, this.warmth, this.userFilter, this.userTrim, this.lp, this.compressor, this.limiter, this.fade, this.volume, this.output,
+      this.warmLow, this.warmHigh, this.warmth, this.userFilter, this.userTrim, this.lp, this.compressor, this.wearGain, this.wearLp, this.limiter, this.fade, this.volume, this.output,
     );
 
     if (opts.analysis !== false) {
@@ -166,6 +192,10 @@ export class TapeMaster {
     this.warmLow.gain.linearRampTo(w.lowDb, Math.max(0.005, rampSeconds), time);
     this.warmHigh.gain.linearRampTo(w.highDb, Math.max(0.005, rampSeconds), time);
     rampParam(this.warmth.frequency, safeCutoff(w.lpHz, sr), time, rampSeconds);
+    const wd = wearDropouts(tape.vinyl);
+    // depths can be 0 / negative: linear ramps
+    this.dipDepth.gain.linearRampTo(-wd.dip, Math.max(0.005, rampSeconds), time);
+    this.dullDepth.gain.linearRampTo(-wd.dullHz, Math.max(0.005, rampSeconds), time);
     const d = wowDepths(tape.wow);
     rampParam(this.wow.depth, d.wow, time, rampSeconds);
     rampParam(this.flutter.depth, d.flutter, time, rampSeconds);
@@ -273,6 +303,7 @@ export class TapeMaster {
   dispose(): void {
     for (const n of [
       this.input, this.lowCut, this.dry, this.crusher, this.crushLp, this.crushWet, this.sum, this.wow, this.flutter,
+      this.wearGain, this.wearLp, this.dropouts, this.dipDepth, this.dullDepth,
       this.tubeDrive, this.tube, this.tubeTrim, this.dcBlock, this.saturator, this.warmLow, this.warmHigh, this.warmth, this.userFilter, this.userTrim, this.lp, this.compressor, this.limiter, this.fade, this.volume, this.output,
     ]) {
       n.dispose();

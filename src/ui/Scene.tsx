@@ -175,10 +175,16 @@ interface Bead {
   slide: number;
 }
 
+interface Splash {
+  x: number;
+  age: number;
+}
+
 /**
  * Pixel-art night window: dithered sky, pixel moon (or sun) and stars, a blocky skyline whose windows flicker,
  * pixel rain and beads on the glass, a lamp glow that breathes with the music and a steaming mug on the sill.
- * Drawn at low resolution and scaled up with smoothing off. Rain follows the "rain" knob; colours follow the station.
+ * Drawn at low resolution and scaled up with smoothing off. Rain follows the "rain" knob (a few slow drops .. a
+ * slanting downpour with mist, splashes and streaming glass), the mug's steam follows "hiss"; colours follow the station.
  */
 export function Scene() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -202,7 +208,8 @@ export function Scene() {
       return { x: r(), y: r() * 0.5, p: r() * 6.28 };
     });
     const drops: Drop[] = [];
-    const beads: Bead[] = Array.from({ length: 36 }, (_, i) => {
+    const splashes: Splash[] = [];
+    const beads: Bead[] = Array.from({ length: 60 }, (_, i) => {
       const r = prng(500 + i);
       return { x: r(), y: r(), slide: 0 };
     });
@@ -242,6 +249,7 @@ export function Scene() {
       const mood = st.params.mood;
       const pal = PALETTES[mood];
       const rain = st.tape.rain;
+      const hiss = st.tape.hiss;
       const level = getVisualizerSource()?.getLevel() ?? 0;
       glow += ((st.playing ? 0.55 + level * 0.9 : 0.35) - glow) * Math.min(1, dt * 4);
       const sill = Math.round(H * 0.9);
@@ -296,32 +304,66 @@ export function Scene() {
         }
       }
 
-      // ---- rain outside: short pixel streaks
-      const target = Math.round(rain * W * 0.9);
-      while (drops.length < target) drops.push({ x: Math.random() * W * 1.2, y: Math.random() * -H, len: 2 + Math.floor(Math.random() * 3), speed: 60 + Math.random() * 50 });
+      // ---- rain outside: a few slow drops at the bottom of the knob, a fast slanting downpour at the top
+      const heavy = Math.max(0, rain - 0.6) / 0.4;
+      const target = Math.round(Math.pow(rain, 1.7) * W * 2.2);
+      const fall = 35 + 190 * rain;
+      const slant = 0.06 + 0.32 * rain;
+      while (drops.length < target) {
+        drops.push({ x: Math.random() * W * 1.4, y: Math.random() * -H, len: 1 + Math.floor(Math.random() * 2 + rain * 5), speed: fall * (0.75 + Math.random() * 0.5) });
+      }
       if (drops.length > target) drops.length = target;
-      g.fillStyle = 'rgba(190,210,235,0.45)';
+      g.fillStyle = `rgba(190,210,235,${(0.3 + 0.3 * rain).toFixed(2)})`;
       for (const d of drops) {
         if (!reduceMotion) {
+          // knob moves retune the drops already falling
+          d.speed += (fall * (0.75 + (d.x % 1) * 0.5) - d.speed) * Math.min(1, dt * 2);
           d.y += d.speed * dt;
-          d.x -= d.speed * dt * 0.15;
+          d.x -= d.speed * dt * slant;
         }
         if (d.y > H) {
           d.y = -d.len - Math.random() * 10;
-          d.x = Math.random() * W * 1.2;
+          d.x = Math.random() * W * 1.4;
+          d.len = 1 + Math.floor(Math.random() * 2 + rain * 5);
         }
-        g.fillRect(Math.floor(d.x), Math.floor(d.y), 1, d.len);
+        const x = Math.floor(d.x);
+        const y = Math.floor(d.y);
+        // slanted streak: step left every couple of pixels
+        for (let k = 0; k < d.len; k++) g.fillRect(x + Math.round((d.len - k) * slant), y + k, 1, 1);
       }
 
-      // ---- beads on the glass (slide down now and then)
-      const beadCount = Math.round(rain * beads.length);
+      // ---- downpour mist: a grey veil that softens the city
+      if (heavy > 0) {
+        g.fillStyle = `rgba(150,165,185,${(0.18 * heavy).toFixed(3)})`;
+        g.fillRect(0, 0, W, H);
+      }
+
+      // ---- splashes on the sill
+      if (!reduceMotion && Math.random() < dt * 30 * Math.pow(rain, 2.5)) splashes.push({ x: Math.random() * W, age: 0 });
+      g.fillStyle = 'rgba(200,220,245,0.55)';
+      for (let i = splashes.length - 1; i >= 0; i--) {
+        const sp = splashes[i]!;
+        sp.age += dt;
+        if (sp.age > 0.25) {
+          splashes.splice(i, 1);
+          continue;
+        }
+        const k = sp.age < 0.12 ? 1 : 2;
+        const sx = Math.floor(sp.x);
+        g.fillRect(sx - k, sill - k, 1, 1);
+        g.fillRect(sx + k, sill - k, 1, 1);
+        if (k === 1) g.fillRect(sx, sill - 2, 1, 1);
+      }
+
+      // ---- beads on the glass: a few still drops in a drizzle, streaming rivulets in a downpour
+      const beadCount = Math.round(Math.min(1, rain * 1.2) * beads.length);
       for (let i = 0; i < beadCount; i++) {
         const b = beads[i]!;
         if (!reduceMotion) {
           if (b.slide > 0) {
-            b.y += dt * 0.12 * b.slide;
-            b.slide = Math.max(0, b.slide - dt * 0.6);
-          } else if (Math.random() < dt * 0.05) b.slide = 1;
+            b.y += dt * (0.12 + 0.3 * rain) * b.slide;
+            b.slide = Math.max(0, b.slide - dt * (0.6 - 0.4 * rain));
+          } else if (Math.random() < dt * (0.03 + 0.6 * rain * rain)) b.slide = 1;
           if (b.y > 1.02) {
             b.y = -0.02;
             b.x = Math.random();
@@ -329,6 +371,11 @@ export function Scene() {
         }
         const bx = Math.floor(b.x * W);
         const by = Math.floor(b.y * sill);
+        if (b.slide > 0.3 && rain > 0.4) {
+          // wet trail behind a sliding drop
+          g.fillStyle = 'rgba(210,228,250,0.18)';
+          g.fillRect(bx, by - Math.round(3 + 6 * rain), 1, Math.round(3 + 6 * rain));
+        }
         g.fillStyle = 'rgba(210,228,250,0.35)';
         g.fillRect(bx, by, 2, 2);
         g.fillStyle = 'rgba(255,255,255,0.6)';
@@ -371,13 +418,18 @@ export function Scene() {
       g.fillRect(mx + 5, sill - 5, 2, 1);
       g.fillRect(mx + 6, sill - 4, 1, 2);
       g.fillRect(mx + 5, sill - 2, 2, 1);
+      // steam follows the hiss knob: a couple of short wisps .. a tall, billowing column
       if (!reduceMotion) {
-        for (let i = 0; i < 3; i++) {
-          const phase = (t * 0.35 + i / 3) % 1;
-          g.fillStyle = `rgba(240,230,215,${(0.6 * (1 - phase)).toFixed(2)})`;
-          const sy = sill - 8 - Math.floor(phase * 10);
-          const sx = mx + 1 + i + Math.round(Math.sin(phase * 6 + i) * 1.2);
-          g.fillRect(sx, sy, 1, 2);
+        const wisps = 3 + Math.round(hiss * 11);
+        const rise = 6 + Math.round(hiss * 34);
+        const sway = 1 + hiss * 3;
+        const alpha = 0.35 + 0.35 * hiss;
+        for (let i = 0; i < wisps; i++) {
+          const phase = (t * (0.3 + 0.1 * hiss) + i / wisps) % 1;
+          g.fillStyle = `rgba(240,230,215,${(alpha * (1 - phase)).toFixed(2)})`;
+          const sy = sill - 8 - Math.floor(phase * rise);
+          const sx = mx + 1 + (i % 3) + Math.round(Math.sin(phase * 6 + i * 1.7 + t * 0.4) * sway * (0.4 + phase));
+          g.fillRect(sx, sy, phase > 0.4 && hiss > 0.5 ? 2 : 1, 2 + Math.round(hiss * 2));
         }
       }
 

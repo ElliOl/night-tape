@@ -33,6 +33,7 @@ export interface TapeParams {
   crush: number;
   /** reverb amount; above 0.5 also echo */
   space: number;
+  /** "Wear" knob: dust crackle, rumble and tape dropouts (key kept as `vinyl` so saved settings still load) */
   vinyl: number;
   rain: number;
   hiss: number;

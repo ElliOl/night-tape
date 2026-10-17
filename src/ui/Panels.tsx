@@ -95,7 +95,7 @@ const TAPE_KNOBS: TapeKnobDef[] = [
 ];
 
 const AMBIENCE_KNOBS: TapeKnobDef[] = [
-  { key: 'vinyl', label: 'Vinyl', title: 'Crackle and rumble' },
+  { key: 'vinyl', label: 'Wear', title: 'Worn tape: dust crackle, rumble and dropouts' },
   { key: 'rain', label: 'Rain', title: 'Rain on the window' },
   { key: 'hiss', label: 'Hiss', title: 'Tape hiss' },
 ];
