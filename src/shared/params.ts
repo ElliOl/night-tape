@@ -25,13 +25,13 @@ export type MixerParams = Record<LayerId, number> & { master: number };
 
 /** Tape / ambience / master filter controls applied by the renderer (never change the composition). 0..1. */
 export interface TapeParams {
-  /** tape low-pass: 0 = muffled, 1 = open */
+  /** tube warmth: 0 = clean / open, 1 = driven, fat and dark */
   warmth: number;
   /** wow & flutter depth */
   wow: number;
-  /** bit-crush blend */
+  /** sampler decimation: sample rate + bit depth reduction */
   crush: number;
-  /** reverb amount */
+  /** reverb amount; above 0.5 also echo */
   space: number;
   vinyl: number;
   rain: number;

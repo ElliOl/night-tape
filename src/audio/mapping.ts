@@ -210,18 +210,22 @@ export function saturationCurve(drive: number, length = 2048): Float32Array {
 }
 
 /**
- * Bit-depth reduction curve ("crush"): quantises -1..1 to 2^bits levels with a soft edge so it hisses
- * like an old sampler rather than buzzing. Used on a parallel path blended in by the crush control.
+ * Triode-style transfer curve: an offset tanh, so the positive half compresses before the negative half. The asymmetry
+ * adds mostly even (2nd/4th) harmonics, the "tube amp" warmth. Unity slope and zero output at 0 (no level jump, no
+ * DC at rest); the drive into it is set by a gain stage in front, so the curve itself never changes.
  */
-export function crushCurve(bits: number, length = 4096): Float32Array {
-  const levels = Math.pow(2, Math.max(2, bits)) / 2;
+export function tubeCurve(length = 4096, k = 1.6, bias = 0.25): Float32Array {
+  const t0 = Math.tanh(k * bias);
+  const slope = k * (1 - t0 * t0);
   const curve = new Float32Array(length);
   for (let i = 0; i < length; i++) {
-    const x = (i / (length - 1)) * 2 - 1;
-    curve[i] = Math.round(x * levels) / levels;
+    const x = ((i / (length - 1)) * 2 - 1) * TUBE_RANGE;
+    curve[i] = (Math.tanh(k * (x + bias)) - t0) / slope;
   }
   return curve;
 }
+/** Input range of tubeCurve: the WaveShaper maps -1..1 to it, so feed it x / TUBE_RANGE. */
+export const TUBE_RANGE = 4;
 
 // ---------------------------------------------------------------------------------------------
 // automation target parsing

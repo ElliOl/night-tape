@@ -3,7 +3,7 @@ import { clamp01, dbToGain, delaySeconds, safeCutoff } from './mapping';
 import { MAX_DELAY_SECONDS, REVERB_IR, getPreset, type FxPreset } from './presets';
 import { rampParam } from './instruments/instrument';
 import { generateReverbIR } from './reverbIR';
-import type { MoodId } from '@shared/index';
+import type { LayerId, MoodId } from '@shared/index';
 
 /** space 0..1 -> reverb return multiplier: 0 -> dry, 0.5 -> x1 (the station's own amount), 1 -> x4 (cathedral) */
 export function spaceMultiplier(space01: number): number {
@@ -11,12 +11,36 @@ export function spaceMultiplier(space01: number): number {
   return x <= 0.5 ? 2 * x : 1 + 6 * (x - 0.5);
 }
 
+/** How far past the mood's own amount the space knob is: 0 up to the middle, 1 at the top. */
+export const spaceEcho = (space01: number): number => Math.max(0, clamp01(space01) - 0.5) * 2;
+
+/** Extra echo send per layer at the top of the space knob (on top of the mood's own sends). */
+export const SPACE_DELAY_SEND: Record<LayerId, number> = { keys: 0.4, pad: 0.25, bass: 0, melody: 0.45, drums: 0.12, texture: 0.05 };
+
+/**
+ * Per-layer echo send for the space knob: below the middle it scales the mood's send down to dry, above it every
+ * melodic layer gets pushed into the echo (the upper half of the knob turns into a full dub delay).
+ */
+export function spaceDelaySend(base: number, layer: LayerId, space01: number): number {
+  const x = clamp01(space01);
+  return x <= 0.5 ? base * 2 * x : base + SPACE_DELAY_SEND[layer] * spaceEcho(x);
+}
+
+/** Echo feedback: the mood's own below the middle, rising to long, self-sustaining-ish repeats at the top. */
+export function spaceFeedback(base: number, space01: number): number {
+  return base + (0.8 - base) * spaceEcho(space01);
+}
+
+/** Echo return boost (dB) for the upper half of the space knob. */
+export const spaceEchoDb = (space01: number): number => 6 * spaceEcho(space01);
+
 /**
  * Shared send/return effects:
  *  - ONE convolution reverb (synthetic IR generated once, synchronously; moods vary send/return level and tone,
  *    never the IR itself, so there is no async regeneration and no CPU spike).
  *  - tempo-synced stereo ping-pong "tape echo" with a low-pass inside the feedback loop (repeats get darker).
- *  - the user's "space" control scales the reverb return.
+ *  - the user's "space" control scales the reverb return and, past the middle, opens up the echo (sends, feedback,
+ *    return) until it is a full delay.
  * Inputs: `reverbIn`, `delayIn`. Output: `output` (summed returns), connect to the master bus.
  */
 export class FxBus {
@@ -48,6 +72,7 @@ export class FxBus {
   private feedbackOn = true;
   private returnsMuted = false;
   private space = 1;
+  private space01 = 0.5;
 
   constructor(mood: MoodId) {
     const p = getPreset(mood).fx;
@@ -79,12 +104,12 @@ export class FxBus {
     this.delayR = new Tone.Delay({ delayTime: dt, maxDelay: MAX_DELAY_SECONDS });
     this.lpA = new Tone.Filter({ type: 'lowpass', frequency: safeCutoff(p.delayLpHz, sr), Q: 0.5, rolloff: -12 });
     this.lpB = new Tone.Filter({ type: 'lowpass', frequency: safeCutoff(p.delayLpHz, sr), Q: 0.5, rolloff: -12 });
-    this.fbA = new Tone.Gain(p.delayFeedback);
-    this.fbB = new Tone.Gain(p.delayFeedback);
+    this.fbA = new Tone.Gain(this.feedbackGain(p));
+    this.fbB = new Tone.Gain(this.feedbackGain(p));
     this.panL = new Tone.Panner(-0.8);
     this.panR = new Tone.Panner(0.8);
     this.delayOut = new Tone.Gain(1);
-    this.delayReturn = new Tone.Gain(dbToGain(p.delayReturnDb));
+    this.delayReturn = new Tone.Gain(this.delayGain(p));
     this.delayToReverb = new Tone.Gain(p.delayToReverb);
 
     this.delayIn.chain(this.delayHp, this.delayL);
@@ -121,34 +146,51 @@ export class FxBus {
       rampParam(this.delayR.delayTime, dt, now, dRamp);
     }
     if (this.feedbackOn) {
-      rampParam(this.fbA.gain, p.delayFeedback, now, rampSeconds);
-      rampParam(this.fbB.gain, p.delayFeedback, now, rampSeconds);
+      rampParam(this.fbA.gain, this.feedbackGain(p), now, rampSeconds);
+      rampParam(this.fbB.gain, this.feedbackGain(p), now, rampSeconds);
     }
     rampParam(this.lpA.frequency, safeCutoff(p.delayLpHz, sr), now, rampSeconds);
     rampParam(this.lpB.frequency, safeCutoff(p.delayLpHz, sr), now, rampSeconds);
     rampParam(this.delayToReverb.gain, p.delayToReverb, now, rampSeconds);
     if (!this.returnsMuted) {
-      rampParam(this.delayReturn.gain, dbToGain(p.delayReturnDb), now, rampSeconds);
+      rampParam(this.delayReturn.gain, this.delayGain(p), now, rampSeconds);
       rampParam(this.reverbReturn.gain, this.reverbGain(p), now, rampSeconds);
     }
     rampParam(this.reverbLp.frequency, safeCutoff(p.reverbLpHz, sr), now, rampSeconds);
     rampParam(this.reverbHp.frequency, p.reverbHpHz, now, rampSeconds);
   }
 
-  /** User "space" control 0..1 (0.5 = the mood's own amount). */
+  /** User "space" control 0..1 (0.5 = the mood's own amount). The per-layer echo sends follow it in AudioGraph. */
   setSpace(space01: number, rampSeconds = 0.15): void {
+    this.space01 = clamp01(space01);
     this.space = spaceMultiplier(space01);
-    if (!this.returnsMuted) rampParam(this.reverbReturn.gain, this.reverbGain(this.preset), Tone.now(), rampSeconds);
+    const now = Tone.now();
+    if (!this.returnsMuted) {
+      rampParam(this.reverbReturn.gain, this.reverbGain(this.preset), now, rampSeconds);
+      rampParam(this.delayReturn.gain, this.delayGain(this.preset), now, rampSeconds);
+    }
+    if (this.feedbackOn) {
+      rampParam(this.fbA.gain, this.feedbackGain(this.preset), now, rampSeconds);
+      rampParam(this.fbB.gain, this.feedbackGain(this.preset), now, rampSeconds);
+    }
   }
 
   private reverbGain(p: FxPreset): number {
     return dbToGain(p.reverbReturnDb) * this.space;
   }
 
+  private delayGain(p: FxPreset): number {
+    return dbToGain(p.delayReturnDb + spaceEchoDb(this.space01));
+  }
+
+  private feedbackGain(p: FxPreset): number {
+    return spaceFeedback(p.delayFeedback, this.space01);
+  }
+
   /** Cut / restore delay regeneration (used by reset(): lets the repeats drain without re-feeding). */
   setFeedbackEnabled(on: boolean, time: number, rampSeconds = 0.05): void {
     this.feedbackOn = on;
-    const g = on ? this.preset.delayFeedback : 0;
+    const g = on ? this.feedbackGain(this.preset) : 0;
     rampParam(this.fbA.gain, g, time, rampSeconds);
     rampParam(this.fbB.gain, g, time, rampSeconds);
   }
@@ -158,7 +200,7 @@ export class FxBus {
     this.returnsMuted = muted;
     const p = this.preset;
     rampParam(this.reverbReturn.gain, muted ? 0 : this.reverbGain(p), time, rampSeconds);
-    rampParam(this.delayReturn.gain, muted ? 0 : dbToGain(p.delayReturnDb), time, rampSeconds);
+    rampParam(this.delayReturn.gain, muted ? 0 : this.delayGain(p), time, rampSeconds);
   }
 
   /**

@@ -45,7 +45,7 @@ const BUSY = new Set(['Solo', 'Theme', 'Tide']);
 
 /** Section bias per target (knob units, before the amount). */
 export function sectionBias(section: string): Partial<Record<ModTarget, number>> {
-  if (QUIET.has(section)) return { cutoff: -0.15, space: 0.12, energy: -0.12, warmth: -0.08 };
+  if (QUIET.has(section)) return { cutoff: -0.15, space: 0.12, energy: -0.12, warmth: 0.08 };
   if (BUSY.has(section)) return { cutoff: 0.08, energy: 0.12, complexity: 0.08, resonance: 0.05 };
   return {};
 }

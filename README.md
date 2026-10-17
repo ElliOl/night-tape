@@ -23,7 +23,7 @@ Keys: `Space` play / pause, `N` new tape (new random seed).
 | Station       | Late Night Study, Rainy Window, Sunday Morning, Ambient Drift. Each has its own pool of instruments, kits, groove families, voicings and progressions; every song draws a new combination. A new station takes over once the current song wraps up (within a few bars). |
 | Groove (live) | Energy, Jazz (triads .. 13th chords, melody density), Drift (bar-to-bar variation), Swing (straight .. hard shuffle), Tempo (auto per song or 40-140 BPM). Changes re-compose the already-scheduled music, so they are heard within about half a beat. |
 | Filter        | LP / BP / HP, Cutoff (40 Hz - 20 kHz), Resonance |
-| Tape          | Warmth (tape low-pass), Wow (wow & flutter), Crush (bit-crush blend), Space (dry .. cathedral) |
+| Tape          | Warmth (tube drive + tone), Wow (wow & flutter), Crush (sample-rate + bit reduction), Space (dry .. cathedral, then full echo) |
 | Ambience      | Vinyl crackle, Rain, Hiss |
 | Cat           | Amount, Rate, and which groups it may move (Filter, Tape, Groove). A Lorenz attractor drifts the knobs smoothly and never repeats; it leans darker in breaks and brighter in solos. Orange dots on the knobs show where it is pushing, and a cat chases the dot. |
 | Mixer         | Keys, Pad, Bass, Lead, Drums, Room (ambience) + master, with mutes |
@@ -61,7 +61,7 @@ Flow: `LocalEngine` renders one bar at a time with the *current* (chaos-modulate
 moves, the Conductor cancels everything after the next ~half beat, rewinds the engine and re-renders.
 
 Audio chain: instruments -> channel strips (fader, mute, sends) -> reverb + tape echo -> tape master
-(bit-crush blend -> wow -> flutter -> saturation -> warmth low-pass -> master filter -> glue compressor -> limiter).
+(decimator -> wow -> flutter -> tube warmth -> saturation -> warmth tone -> master filter -> glue compressor -> limiter).
 Every song starts with a `patch` event that moves each instrument to the song's patch.
 
 `window.nightTape` exposes the conductor, renderer and store in the dev console.

@@ -2,7 +2,7 @@ import * as Tone from 'tone';
 import {
   DEFAULT_TAPE, LAYER_IDS, type AutomationTarget, type FilterMode, type LayerId, type MixerParams, type MoodId, type SoundPalette, type TapeParams,
 } from '@shared/index';
-import { FxBus } from './fx';
+import { FxBus, spaceDelaySend } from './fx';
 import { allInstruments, createInstruments, type InstrumentSet } from './instruments';
 import { TapeMaster } from './master';
 import { SEND_NEUTRAL, parseTarget, sendMultiplier } from './mapping';
@@ -32,6 +32,7 @@ export class AudioGraph {
 
   private mood: MoodId;
   private reverbMul = SEND_NEUTRAL;
+  private space = DEFAULT_TAPE.space;
   private disposed = false;
 
   constructor(opts: GraphOptions) {
@@ -62,6 +63,10 @@ export class AudioGraph {
     this.master.setTape(tape, Tone.now(), rampSeconds);
     this.fx.setSpace(tape.space, rampSeconds);
     this.instruments.texture.setTape(tape, rampSeconds);
+    if (tape.space !== this.space) {
+      this.space = tape.space;
+      this.applySends(Tone.now(), rampSeconds);
+    }
   }
 
   setFilterMode(mode: FilterMode): void {
@@ -89,7 +94,9 @@ export class AudioGraph {
 
   private applySends(time: number, rampSeconds: number): void {
     const fx = getPreset(this.mood).fx;
-    for (const l of LAYER_IDS) this.strips[l].setSends(fx.reverbSend[l] * this.reverbMul, fx.delaySend[l], time, rampSeconds);
+    for (const l of LAYER_IDS) {
+      this.strips[l].setSends(fx.reverbSend[l] * this.reverbMul, spaceDelaySend(fx.delaySend[l], l, this.space), time, rampSeconds);
+    }
   }
 
   trigger(layer: LayerId, midi: number, durSeconds: number, time: number, vel: number): void {

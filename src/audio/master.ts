@@ -1,7 +1,8 @@
 import * as Tone from 'tone';
 import type { FilterMode, MoodId, TapeParams } from '@shared/index';
 import { DEFAULT_TAPE } from '@shared/index';
-import { clamp01, crushCurve, dbToGain, faderToGain, logMap, masterFilterHz, safeCutoff, saturationCurve } from './mapping';
+import { TUBE_RANGE, clamp01, dbToGain, faderToGain, logMap, masterFilterHz, safeCutoff, saturationCurve, tubeCurve } from './mapping';
+import { Crusher, crushSettings } from './crusher';
 import { getPreset } from './presets';
 import { rampParam } from './instruments/instrument';
 
@@ -13,8 +14,27 @@ export interface MasterOptions {
   toDestination?: boolean;
 }
 
-/** warmth 0..1 -> tape low-pass cutoff (Hz): 0 = very muffled 500 Hz, 1 = open 20 kHz. */
-export const warmthHz = (warmth: number): number => logMap(clamp01(warmth), 500, 20000);
+/** warmth above this goes from warm tube into overdrive */
+const OVERDRIVE_FROM = 0.7;
+/**
+ * warmth 0..1 -> tube stage: 0 = clean and open, ~0.7 = warm driven valve with a fat low end and soft top,
+ * 1 = cranked overdrive. `drive` is the gain into the (fixed) tube curve; `trim` follows 1/drive (only the peaks
+ * squash) until the overdrive zone, where it lets the distortion come forward instead of hiding it.
+ */
+export const warmthSettings = (warmth: number): { drive: number; trim: number; lowDb: number; highDb: number; lpHz: number } => {
+  const w = clamp01(warmth);
+  const od = Math.max(0, w - OVERDRIVE_FROM) / (1 - OVERDRIVE_FROM);
+  const tubeDrive = 0.05 + 2.4 * Math.pow(w, 1.5);
+  const drive = tubeDrive * (1 + 9 * od * od);
+  return {
+    drive,
+    trim: 1 / (tubeDrive * Math.pow(drive / tubeDrive, 0.2)),
+    // overdrive needs its mids and some bite: ease the bass bump and the darkening back off at the top
+    lowDb: 6 * Math.min(w, OVERDRIVE_FROM) / OVERDRIVE_FROM - 2 * od,
+    highDb: -8 * Math.pow(Math.min(w, OVERDRIVE_FROM) / OVERDRIVE_FROM, 1.2) + 3 * od,
+    lpHz: logMap(1 - Math.min(w, OVERDRIVE_FROM), 4500, 20000) * (1 + 0.6 * od),
+  };
+};
 /** wow 0..1 -> vibrato depth of the slow (wow) and fast (flutter) modulators (max delay 12 ms / 3 ms). */
 export const wowDepths = (wow: number): { wow: number; flutter: number } => {
   const x = clamp01(wow);
@@ -34,7 +54,8 @@ export const resonanceTrimDb = (q: number, mode: FilterMode = 'lowpass'): number
 
 /**
  * Master "tape machine":
- *   input -> 35 Hz low-cut -> (dry | bit-crush path) -> wow -> flutter -> tape saturation -> warmth low-pass
+ *   input -> 35 Hz low-cut -> (dry | decimator path) -> wow -> flutter -> tube (warmth) -> tape saturation
+ *   -> warmth tone (low shelf, high shelf, low-pass)
  *   -> transition low-pass ('master.filter') -> glue compressor -> limiter -> fade -> volume -> analysers + out
  */
 export class TapeMaster {
@@ -43,13 +64,19 @@ export class TapeMaster {
 
   private readonly lowCut: Tone.Filter;
   private readonly dry: Tone.Gain;
-  private readonly crusher: Tone.WaveShaper;
+  private readonly crusher: Crusher;
   private readonly crushLp: Tone.Filter;
   private readonly crushWet: Tone.Gain;
   private readonly sum: Tone.Gain;
   private readonly wow: Tone.Vibrato;
   private readonly flutter: Tone.Vibrato;
+  private readonly tubeDrive: Tone.Gain;
+  private readonly tube: Tone.WaveShaper;
+  private readonly tubeTrim: Tone.Gain;
+  private readonly dcBlock: Tone.Filter;
   private readonly saturator: Tone.WaveShaper;
+  private readonly warmLow: Tone.Filter;
+  private readonly warmHigh: Tone.Filter;
   private readonly warmth: Tone.Filter;
   private readonly userFilter: Tone.Filter;
   private readonly userTrim: Tone.Gain;
@@ -79,16 +106,25 @@ export class TapeMaster {
     this.input = new Tone.Gain(dbToGain(5));
     this.lowCut = new Tone.Filter({ type: 'highpass', frequency: 35, Q: 0.7, rolloff: -12 });
     this.dry = new Tone.Gain(1);
-    this.crusher = new Tone.WaveShaper(crushCurve(5));
-    this.crushLp = new Tone.Filter({ type: 'lowpass', frequency: 6000, Q: 0.5, rolloff: -24 });
+    this.crusher = new Crusher();
+    this.crushLp = new Tone.Filter({ type: 'lowpass', frequency: 12000, Q: 0.5, rolloff: -12 });
     this.crushWet = new Tone.Gain(0);
     this.sum = new Tone.Gain(1);
     const d = wowDepths(DEFAULT_TAPE.wow);
     this.wow = new Tone.Vibrato({ frequency: t.wowRate, depth: d.wow, maxDelay: 0.012, type: 'sine' });
     this.flutter = new Tone.Vibrato({ frequency: t.flutterRate, depth: d.flutter, maxDelay: 0.003, type: 'triangle' });
+    const w0 = warmthSettings(DEFAULT_TAPE.warmth);
+    this.tubeDrive = new Tone.Gain(w0.drive / TUBE_RANGE);
+    this.tube = new Tone.WaveShaper(tubeCurve(), 4096);
+    this.tube.oversample = '2x';
+    this.tubeTrim = new Tone.Gain(w0.trim);
+    // the tube's asymmetry leaves a little DC on loud passages
+    this.dcBlock = new Tone.Filter({ type: 'highpass', frequency: 18, Q: 0.7, rolloff: -12 });
     this.saturator = new Tone.WaveShaper(saturationCurve(t.drive), 2048);
     this.saturator.oversample = '2x';
-    this.warmth = new Tone.Filter({ type: 'lowpass', frequency: safeCutoff(warmthHz(DEFAULT_TAPE.warmth), sr), Q: 0.6, rolloff: -12 });
+    this.warmLow = new Tone.Filter({ type: 'lowshelf', frequency: 180, gain: w0.lowDb });
+    this.warmHigh = new Tone.Filter({ type: 'highshelf', frequency: 3200, gain: w0.highDb });
+    this.warmth = new Tone.Filter({ type: 'lowpass', frequency: safeCutoff(w0.lpHz, sr), Q: 0.6, rolloff: -12 });
     const q0 = resonanceQ(DEFAULT_TAPE.resonance);
     this.userFilter = new Tone.Filter({ type: 'lowpass', frequency: safeCutoff(cutoffHz(DEFAULT_TAPE.cutoff), sr), Q: q0, rolloff: -12 });
     this.userTrim = new Tone.Gain(dbToGain(resonanceTrimDb(q0)));
@@ -105,7 +141,8 @@ export class TapeMaster {
     this.dry.connect(this.sum);
     this.crushWet.connect(this.sum);
     this.sum.chain(
-      this.wow, this.flutter, this.saturator, this.warmth, this.userFilter, this.userTrim, this.lp, this.compressor, this.limiter, this.fade, this.volume, this.output,
+      this.wow, this.flutter, this.tubeDrive, this.tube, this.tubeTrim, this.dcBlock, this.saturator,
+      this.warmLow, this.warmHigh, this.warmth, this.userFilter, this.userTrim, this.lp, this.compressor, this.limiter, this.fade, this.volume, this.output,
     );
 
     if (opts.analysis !== false) {
@@ -122,15 +159,24 @@ export class TapeMaster {
   /** User tape + master filter controls. Ambience and space are handled by texture / fx. */
   setTape(tape: TapeParams, time = Tone.now(), rampSeconds = 0.12): void {
     const sr = Tone.getContext().sampleRate;
-    rampParam(this.warmth.frequency, safeCutoff(warmthHz(tape.warmth), sr), time, rampSeconds);
+    const w = warmthSettings(tape.warmth);
+    rampParam(this.tubeDrive.gain, w.drive / TUBE_RANGE, time, rampSeconds);
+    rampParam(this.tubeTrim.gain, w.trim, time, rampSeconds);
+    // shelf gains are native dB (0 / negative): linear ramps, rampParam would go exponential
+    this.warmLow.gain.linearRampTo(w.lowDb, Math.max(0.005, rampSeconds), time);
+    this.warmHigh.gain.linearRampTo(w.highDb, Math.max(0.005, rampSeconds), time);
+    rampParam(this.warmth.frequency, safeCutoff(w.lpHz, sr), time, rampSeconds);
     const d = wowDepths(tape.wow);
     rampParam(this.wow.depth, d.wow, time, rampSeconds);
     rampParam(this.flutter.depth, d.flutter, time, rampSeconds);
-    const c = clamp01(tape.crush);
-    rampParam(this.crushWet.gain, c, time, rampSeconds);
-    rampParam(this.dry.gain, 1 - c * 0.95, time, rampSeconds);
-    // more crush also lowers the "sample rate" (darker, more aliasing-like)
-    rampParam(this.crushLp.frequency, logMap(1 - c, 2200, 9000), time, rampSeconds);
+    const c = crushSettings(tape.crush);
+    // crossfade (not a parallel blend): mixing the decimated copy with the dry one only leaves the hiss of the difference
+    rampParam(this.crushWet.gain, c.wet, time, rampSeconds);
+    rampParam(this.dry.gain, 1 - c.wet, time, rampSeconds);
+    rampParam(this.crusher.bits, c.bits, time, rampSeconds);
+    rampParam(this.crusher.hold, c.hold, time, rampSeconds);
+    // keep the aliasing (that is the character), just take the fizz off the very top
+    rampParam(this.crushLp.frequency, safeCutoff(logMap(1 - clamp01(tape.crush), 12000, 16000), sr), time, rampSeconds);
     this.lastTape = { ...tape };
     if (Tone.now() < this.acidUntil) return;
     const q = resonanceQ(tape.resonance, this.mode);
@@ -227,7 +273,7 @@ export class TapeMaster {
   dispose(): void {
     for (const n of [
       this.input, this.lowCut, this.dry, this.crusher, this.crushLp, this.crushWet, this.sum, this.wow, this.flutter,
-      this.saturator, this.warmth, this.userFilter, this.userTrim, this.lp, this.compressor, this.limiter, this.fade, this.volume, this.output,
+      this.tubeDrive, this.tube, this.tubeTrim, this.dcBlock, this.saturator, this.warmLow, this.warmHigh, this.warmth, this.userFilter, this.userTrim, this.lp, this.compressor, this.limiter, this.fade, this.volume, this.output,
     ]) {
       n.dispose();
     }

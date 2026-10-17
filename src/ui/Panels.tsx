@@ -88,10 +88,10 @@ export function GroovePanel() {
 type TapeKnobDef = { key: keyof TapeParams; label: string; title: string };
 
 const TAPE_KNOBS: TapeKnobDef[] = [
-  { key: 'warmth', label: 'Warmth', title: 'Tape low-pass: very muffled to open' },
+  { key: 'warmth', label: 'Warmth', title: 'Tube warmth: clean to warm valve, overdrive at the top' },
   { key: 'wow', label: 'Wow', title: 'Wow & flutter (pitch wobble)' },
-  { key: 'crush', label: 'Crush', title: 'Old-sampler bit crush' },
-  { key: 'space', label: 'Space', title: 'Reverb: dry to cathedral' },
+  { key: 'crush', label: 'Crush', title: 'Old-sampler crunch: lower sample rate and bit depth' },
+  { key: 'space', label: 'Space', title: 'Dry to cathedral; past the middle it opens into a full echo' },
 ];
 
 const AMBIENCE_KNOBS: TapeKnobDef[] = [
