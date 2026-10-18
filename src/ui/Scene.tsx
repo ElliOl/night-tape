@@ -2,10 +2,11 @@ import { useEffect, useRef } from 'react';
 import type { MoodId } from '@shared/index';
 import { useStore } from '../services/store';
 import { getVisualizerSource } from './visualizerSource';
-import { isCatNapping } from '../services/wildcat';
+import { catWindowSpot, isCatNapping } from '../services/wildcat';
+import { CROSSBAR_ROW, SCENE_PIXEL, SILL_ROW } from './sceneGeometry';
 
 /** Size of one art pixel on screen (CSS px). */
-const PIXEL = 4;
+const PIXEL = SCENE_PIXEL;
 
 interface Palette {
   sky: [string, string, string];
@@ -162,6 +163,40 @@ function drawSleepingCat(g: CanvasRenderingContext2D, cx: number, sill: number, 
   }
 }
 
+/**
+ * The cat sitting up on the window's middle crossbar, seen from the room: an upright ginger back, ears up, looking
+ * out at the night, its tail hanging down over the bar and swishing. `cx` is the middle of the cat, `bar` the bar's
+ * top row.
+ */
+function drawSittingCat(g: CanvasRenderingContext2D, cx: number, bar: number, t: number, motion: boolean): void {
+  const BODY = '#c98a4b';
+  const DARK = '#9a5f2c';
+  const px = (x: number, y: number, w = 1, h = 1): void => g.fillRect(cx + x, bar + y, w, h);
+  // tail hanging over the bar, its tip swishing
+  const swish = motion ? Math.round(Math.sin(t * 1.6)) : 0;
+  g.fillStyle = DARK;
+  px(2, 0, 1, 2);
+  px(2, 2, 1, 2);
+  px(2 + swish, 4, 1, 2);
+  px(2 + swish * 2, 6);
+  // haunches and back
+  g.fillStyle = BODY;
+  px(-3, -3, 6, 3);
+  px(-2, -6, 4, 3);
+  // stripes across the back
+  g.fillStyle = DARK;
+  px(-2, -5, 4, 1);
+  px(-3, -2, 6, 1);
+  // head (from behind), ears up, now and then a glance to the side
+  const glance = motion && Math.sin(t * 0.35) > 0.85 ? 1 : 0;
+  g.fillStyle = BODY;
+  px(-2 + glance, -9, 4, 3);
+  px(-2 + glance, -10);
+  px(1 + glance, -10);
+  g.fillStyle = '#e07a6a';
+  if (glance) px(2 + glance, -8);
+}
+
 interface Drop {
   x: number;
   y: number;
@@ -252,7 +287,7 @@ export function Scene() {
       const hiss = st.tape.hiss;
       const level = getVisualizerSource()?.getLevel() ?? 0;
       glow += ((st.playing ? 0.55 + level * 0.9 : 0.35) - glow) * Math.min(1, dt * 4);
-      const sill = Math.round(H * 0.9);
+      const sill = Math.round(H * SILL_ROW);
 
       // ---- sky (cached dither)
       const key = `${mood}:${W}x${H}`;
@@ -398,7 +433,7 @@ export function Scene() {
       g.fillRect(0, 0, fw, H);
       g.fillRect(W - fw, 0, fw, H);
       g.fillRect(Math.round(W / 2) - 1, 0, fw, H);
-      g.fillRect(0, Math.round(H * 0.42), W, 2);
+      g.fillRect(0, Math.round(H * CROSSBAR_ROW), W, 2);
       g.fillStyle = '#3a2a1b';
       g.fillRect(fw, fw, W - fw * 2, 1);
       g.fillRect(Math.round(W / 2) - 1, 0, 1, H);
@@ -454,7 +489,10 @@ export function Scene() {
       g.fillRect(px + 4, sill - 11, 1, 1);
 
       // ---- the cat, napping on the sill
-      if (isCatNapping()) drawSleepingCat(g, Math.round(W * 0.66), sill, t, !reduceMotion);
+      if (isCatNapping()) {
+        if (catWindowSpot() === 'bar') drawSittingCat(g, Math.round(W * 0.28), Math.round(H * CROSSBAR_ROW), t, !reduceMotion);
+        else drawSleepingCat(g, Math.round(W * 0.66), sill, t, !reduceMotion);
+      }
 
       // ---- vignette
       const vig = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);

@@ -14,7 +14,7 @@ npm test           # theory, engine and persistence tests
 npm run build      # static build in dist/ (relative paths, host anywhere)
 ```
 
-Keys: `Space` play / pause, `N` new tape (new random seed).
+Keys: `Space` play / pause, `N` new tape (new random seed), `Z` (or Select on a controller) the cat curls up and sleeps right where it is / wakes up.
 
 ## What you can control
 

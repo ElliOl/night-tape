@@ -8,7 +8,7 @@
  * mischief, so it also happens with Wild at 0.
  */
 import type { LayerId } from '@shared/index';
-import { MOODS } from '../composition/moods';
+import { SAY } from '../ui/speech';
 import { lfoSnapshot } from './modulator';
 import { useStore } from './store';
 import { WildBrain, type WildPlan } from './wildBrain';
@@ -66,13 +66,25 @@ export interface WildDeps {
   upcomingSections(): Array<{ beat: number; name: string; songIndex: number }>;
 }
 
-const LAYER_NAME: Record<LayerId, string> = { keys: 'keys', pad: 'pad', bass: 'bass', melody: 'lead', drums: 'drums', texture: 'room' };
 /** time the cat needs to get home (or to the window) after its last swat (ms) */
 const RETURN_MS = 2400;
 /** a stroll to or from the window (ms, the overlay goes at its own pace) */
 const STROLL_MS = 3500;
 
 let activeDeps: WildDeps | null = null;
+
+/** A player has the cat (gamepad): no jobs and no naps until they hand it back. */
+let playerControl = false;
+let onPlayerTakeover: (() => void) | null = null;
+export function setPlayerControl(v: boolean): void {
+  if (v && !playerControl) {
+    onPlayerTakeover?.();
+    // picking the cat up wakes it
+    if (useStore.getState().catSleep) useStore.getState().setCatSleep(false);
+  }
+  playerControl = v;
+}
+export const isPlayerControlled = (): boolean => playerControl;
 
 /** The user clicked a layer the cat had muted: the user wins, the layer comes back right away. */
 export function releaseCatMute(layer: LayerId): void {
@@ -147,8 +159,8 @@ export function startWildCat(deps: WildDeps): { stop(): void } {
           target: `[data-cat-target="mute-${plan.layers[0]}"]`,
           landAt: msAt(plan.fromBeat),
           holdUntil: msAt(plan.toBeat),
-          label: plan.reason === 'nap' ? 'zzz…' : `${plan.layers.map((l) => LAYER_NAME[l]).join(' + ')} off`,
-          endLabel: plan.reason === 'nap' ? `*yawn* ${LAYER_NAME[plan.layers[0]!]} back` : 'back in!',
+          label: plan.reason === 'nap' ? SAY.napOn : SAY.layersOff(plan.layers),
+          endLabel: plan.reason === 'nap' ? SAY.napOff(plan.layers[0]!) : SAY.backIn,
           doze: plan.reason === 'nap',
         };
         break;
@@ -159,7 +171,7 @@ export function startWildCat(deps: WildDeps): { stop(): void } {
           target: '[data-cat-target="cutoff"]',
           landAt: msAt(plan.fromBeat),
           holdUntil: msAt(plan.fromBeat + plan.bars * 4),
-          label: 'acid!',
+          label: SAY.acid,
           wiggle: { stepMs: (60 / tempo) * 250, accents: plan.accents },
         };
         break;
@@ -170,7 +182,7 @@ export function startWildCat(deps: WildDeps): { stop(): void } {
           target: `[data-cat-target="station-${plan.mood}"]`,
           landAt: msAt(plan.atBeat),
           holdUntil: msAt(plan.atBeat) + 1400,
-          label: `→ ${MOODS[plan.mood].name}`,
+          label: SAY.station(plan.mood),
         };
         break;
       }
@@ -195,8 +207,37 @@ export function startWildCat(deps: WildDeps): { stop(): void } {
     });
   };
 
+  // the player takes the cat: drop whatever it was doing (its mutes / acid end), it is not at home or asleep any more
+  onPlayerTakeover = () => {
+    cancelMischief();
+    place = 'home';
+    napUntil = 0;
+    emit(null);
+  };
+
+  let wasSleep = false;
   const timer = setInterval(() => {
     const st = useStore.getState();
+    if (playerControl) {
+      lastBar = -1;
+      idleSince = performance.now();
+      wasSleep = st.catSleep;
+      return;
+    }
+    // ---- Z / Select (sleep): the cat curls up right where it is (the overlay draws it there); no jobs, no naps
+    if (st.catSleep) {
+      if (!wasSleep) {
+        wasSleep = true;
+        cancelMischief();
+      }
+      lastBar = -1;
+      if (place === 'window') napUntil = Infinity;
+      return;
+    }
+    if (wasSleep) {
+      wasSleep = false;
+      idleSince = performance.now();
+    }
     const wild = st.chaos.wildness > 0.01;
     if (wasWild && (!wild || st.busy)) cancelMischief();
     wasWild = wild && !st.busy;
@@ -247,6 +288,7 @@ export function startWildCat(deps: WildDeps): { stop(): void } {
     stop: () => {
       clearInterval(timer);
       cancelMischief();
+      onPlayerTakeover = null;
     },
   };
 }
@@ -264,3 +306,11 @@ export function setCatNapping(v: boolean): void {
   napping = v;
 }
 export const isCatNapping = (): boolean => napping;
+
+/** Where in the window the cat is: curled up asleep on the sill, or sitting up on the middle crossbar looking out. */
+export type WindowSpot = 'sill' | 'bar';
+let windowSpot: WindowSpot = 'sill';
+export function setWindowSpot(s: WindowSpot): void {
+  windowSpot = s;
+}
+export const catWindowSpot = (): WindowSpot => windowSpot;

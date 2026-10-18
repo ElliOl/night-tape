@@ -219,11 +219,15 @@ export class TapeMaster {
   acidBegin(time: number, seconds: number): void {
     this.acidUntil = Math.max(this.acidUntil, time + seconds);
     this.userFilter.type = 'lowpass';
-    this.userFilter.frequency.cancelScheduledValues(time);
-    this.userFilter.Q.cancelScheduledValues(time);
-    this.userTrim.gain.cancelScheduledValues(time);
-    this.userTrim.gain.setValueAtTime(dbToGain(-5), time);
+    // hold everything where it is (no jumps = no clicks), then ease the trim down
+    this.userFilter.frequency.cancelAndHoldAtTime(time);
+    this.userFilter.Q.cancelAndHoldAtTime(time);
+    this.userTrim.gain.cancelAndHoldAtTime(time);
+    this.userTrim.gain.linearRampToValueAtTime(dbToGain(-5), time + 0.03);
   }
+
+  /** opening time of each acid step (s): still a snap, but soft enough not to tick on every 16th */
+  private static readonly ACID_ATTACK = 0.008;
 
   /**
    * One 16th of TB-303 style filter: the cutoff snaps open and decays over the step. Accented steps open further and
@@ -234,9 +238,15 @@ export class TapeMaster {
     const base = 260 + 160 * intensity;
     const peak = base * (accent ? 9 + 7 * intensity : 4 + 3 * intensity);
     const f = this.userFilter.frequency;
-    f.setValueAtTime(safeCutoff(peak, sr), time);
+    const q = this.userFilter.Q;
+    const open = time + TapeMaster.ACID_ATTACK;
+    // a resonant filter jumping 4-16x in one sample clicks: open it over a few ms instead, from where it is
+    f.setValueAtTime(f.getValueAtTime(time), time);
+    f.linearRampToValueAtTime(safeCutoff(peak, sr), open);
     f.exponentialRampToValueAtTime(safeCutoff(base, sr), time + seconds * 0.92);
-    this.userFilter.Q.setValueAtTime(accent ? 15 : 10, time);
+    q.setValueAtTime(q.getValueAtTime(time), time);
+    // resonance: enough to squelch, not so much that each step rings like a click
+    q.linearRampToValueAtTime(accent ? 13 : 8, time + 0.01);
   }
 
   /** Hand the filter back to the knobs (smoothly) at `time`. */
@@ -245,8 +255,10 @@ export class TapeMaster {
     this.userFilter.type = this.mode;
     const sr = Tone.getContext().sampleRate;
     const q = resonanceQ(this.lastTape.resonance, this.mode);
-    this.userFilter.frequency.cancelScheduledValues(time);
-    this.userFilter.Q.cancelScheduledValues(time);
+    // hold where the acid left them, then glide back to the knobs
+    this.userFilter.frequency.cancelAndHoldAtTime(time);
+    this.userFilter.Q.cancelAndHoldAtTime(time);
+    this.userTrim.gain.cancelAndHoldAtTime(time);
     rampParam(this.userFilter.frequency, safeCutoff(cutoffHz(this.lastTape.cutoff), sr), time, 0.4);
     rampParam(this.userFilter.Q, q, time, 0.4);
     rampParam(this.userTrim.gain, dbToGain(resonanceTrimDb(q, this.mode)), time, 0.4);

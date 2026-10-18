@@ -14,7 +14,7 @@ const isTyping = (t: EventTarget | null): boolean => {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 };
 
-/** Space: play/pause. N: new tape. (Not while typing or with a button focused for Space.) */
+/** Space: play/pause. N: new tape. Z: the cat curls up where it is / wakes up. (Not while typing or with a button focused for Space.) */
 function useHotkeys(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -27,6 +27,10 @@ function useHotkeys(): void {
       } else if (e.key === 'n' || e.key === 'N') {
         e.preventDefault();
         void nextTape();
+      } else if (e.key === 'z' || e.key === 'Z') {
+        e.preventDefault();
+        const st = useStore.getState();
+        st.setCatSleep(!st.catSleep);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -100,7 +104,7 @@ export function App() {
           <div className="header__sub">lo-fi / ambient generator</div>
         </div>
         <div className="header__hint">
-          <kbd>Space</kbd> play · <kbd>N</kbd> new tape
+          <kbd>Space</kbd> play · <kbd>N</kbd> new tape · <kbd>Z</kbd> cat nap
         </div>
       </header>
       <main className="main">
@@ -119,6 +123,13 @@ export function App() {
         </div>
       </main>
       <footer className="footer">every song is composed in your browser from the seed · nothing is sampled</footer>
+      {/* the very bottom of the page: skirting board with a mouse hole, and the floor the cat and the mouse run on */}
+      <div className="floor" aria-hidden="true">
+        <div className="floor__wall">
+          <div className="floor__hole" />
+        </div>
+        <div className="floor__ground" />
+      </div>
       <WildCatOverlay />
       <Toast />
     </div>

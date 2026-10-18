@@ -1,6 +1,15 @@
 import { useEffect, useRef } from 'react';
-import { currentExcursion, onExcursion, setCatAway, setCatNapping, type CatPlace, type Excursion } from '../services/wildcat';
+import {
+  catWindowSpot, currentExcursion, onExcursion, setCatAway, setCatNapping, setPlayerControl, setWindowSpot, type CatPlace, type Excursion,
+} from '../services/wildcat';
+import { CROSSBAR_ROW, SILL_ROW, sceneRows } from './sceneGeometry';
 import { CatSim, type CatPose } from './cat';
+import { CatPlayer, readPad } from './catPlayer';
+import { FloorMouse } from './mouse';
+import { mouseMischief } from './mouseMischief';
+import { BUBBLE_FONT, SAY } from './speech';
+import { shedCrumbs } from './crumbSources';
+import { useStore } from '../services/store';
 
 /**
  * The wild cat's trips around the page. The cat never flies freely across the screen: panels are zones, neighbouring
@@ -54,11 +63,13 @@ interface Trip {
   outScale: number;
   backStart: number;
   swatted: { start: boolean; end: boolean };
-  /** cancelled: fade out and reappear in the scope */
-  fadeFrom?: number;
+  /** speech bubbles at times since startAt (ms) */
+  say?: Array<{ at: number; ms: number; text: string }>;
 }
 
 const ADJ_GAP = 30;
+/** the levels of the page the cat travels along */
+const ZONE_SEL = '.main .panel, .main .hero, .floor__ground';
 const SWAT_MS = 450;
 const CAT_SCALE = 1.25;
 
@@ -121,13 +132,42 @@ function pause(at: PointRef, g: Gait): Leg {
   return { kind: 'pause', from: at, to: at, ms: 500 + g.rand() * 900 };
 }
 
+/**
+ * The level the cat is on (or in, when it stands on a control inside a panel) at viewport point x, y, as a point that
+ * moves with the page. Used so every trip starts exactly where the cat is: it never vanishes from a level.
+ */
+function zoneUnder(x: number, y: number): { zone: Element; point: PointRef } | null {
+  let best: Element | null = null;
+  let bestScore = Infinity;
+  for (const z of document.querySelectorAll(ZONE_SEL)) {
+    const r = rectOf(z);
+    if (x < r.left - 4 || x > r.right + 4) continue;
+    const below = y - r.top; // >= 0: feet on or below the top edge (on it, or on a control inside it)
+    const inside = below >= -4 && y <= r.bottom + 4;
+    const score = inside ? Math.max(0, below) : 10000 + Math.abs(below);
+    if (score < bestScore) {
+      bestScore = score;
+      best = z;
+    }
+  }
+  if (!best) return null;
+  const r = rectOf(best);
+  return { zone: best, point: { el: best, fx: Math.min(1, Math.max(0, (x - r.left) / Math.max(1, r.width))), dy: y - r.top } };
+}
+
 /** Where the cat sits at a place: in the scope (home) or on the pixel scene's windowsill. */
 function placePoint(place: CatPlace): { zone: Element; point: PointRef } | null {
   if (place === 'window') {
     const scene = document.querySelector('.scene');
     const zone = document.querySelector('.main .hero');
+    if (!scene || !zone) return null;
+    if (catWindowSpot() === 'bar') {
+      // up on the middle crossbar, left of the mullion (same pixel row the scene draws the bar on)
+      const rows = sceneRows(rectOf(scene).height);
+      return { zone, point: { el: scene, fx: 0.28, fy: Math.round(rows * CROSSBAR_ROW) / rows } };
+    }
     // the sill row of the pixel scene sits at 90% of its height; the cat sleeps right of the mullion
-    return scene && zone ? { zone, point: { el: scene, fx: 0.66, fy: 0.9 } } : null;
+    return { zone, point: { el: scene, fx: 0.66, fy: SILL_ROW } };
   }
   const scope = document.querySelector('.chaos__scope');
   const zone = document.querySelector('.panel--chaos');
@@ -168,9 +208,9 @@ function pathBetween(zones: Element[], fromZone: Element, from: PointRef, toZone
   return legs;
 }
 
-function buildTrip(ex: Excursion): Trip | null {
-  const zones = Array.from(document.querySelectorAll('.main .panel, .main .hero'));
-  const from = placePoint(ex.from);
+function buildTrip(ex: Excursion, start: { zone: Element; point: PointRef } | null): Trip | null {
+  const zones = Array.from(document.querySelectorAll(ZONE_SEL));
+  const from = start ?? placePoint(ex.from);
   const to = placePoint(ex.to);
   if (!from || !to) return null;
   const now = performance.now();
@@ -267,7 +307,7 @@ function wigglePose(sinceLand: number, w: NonNullable<Excursion['wiggle']>): { d
 function bubble(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, alpha: number): void {
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.font = '600 17px Caveat, "Comic Sans MS", cursive';
+  ctx.font = BUBBLE_FONT;
   const w = ctx.measureText(text).width + 16;
   const bx = Math.round(x - w / 2);
   const by = Math.round(y - 58);
@@ -286,6 +326,68 @@ function bubble(ctx: CanvasRenderingContext2D, x: number, y: number, text: strin
   ctx.restore();
 }
 
+let strollId = 1_000_000;
+
+/** Floor zone (the lowest level of the page) and a point on it at viewport x. */
+function floorAt(x: number): { zone: Element; point: PointRef } | null {
+  const zone = document.querySelector('.floor__ground');
+  return zone ? { zone, point: { el: zone, fx: fxToward(zone, x) } } : null;
+}
+
+/**
+ * The cat spots the mouse: down to the floor a little way off, a dash and a pounce at where the mouse was (it is
+ * always gone by then: it runs faster than the cat), a long sulk, then home.
+ */
+function chaseTrip(mouseX: number, now: number, start: { zone: Element; point: PointRef } | null): Trip | null {
+  const home = placePoint('home');
+  const origin = start ?? home;
+  const zones = Array.from(document.querySelectorAll(ZONE_SEL));
+  const floor = document.querySelector('.floor__ground')?.getBoundingClientRect();
+  if (!floor) return null;
+  // land on whichever side has more room, a cautious distance from the mouse
+  const fromLeft = mouseX - floor.left > floor.right - mouseX;
+  const land = floorAt(mouseX + (fromLeft ? -200 : 200));
+  const hole = floorAt(mouseX);
+  if (!home || !origin || !land || !hole) return null;
+  const ex: Excursion = { id: strollId++, kind: 'wake', from: 'home', to: 'home', landAt: now, holdUntil: now };
+  const g = gaitFor(ex.id);
+  const toFloor = pathBetween(zones, origin.zone, origin.point, land.zone, land.point, g);
+  const dashMs = Math.max(250, (dist(land.point, hole.point) / 650) * 1000);
+  const legs: Leg[] = [
+    ...toFloor,
+    { kind: 'walk', from: land.point, to: hole.point, ms: dashMs },
+    { kind: 'hop', from: hole.point, to: hole.point, ms: 380, arc: 0.6 },
+    { kind: 'pause', from: hole.point, to: hole.point, ms: 2600 },
+  ];
+  const back = pathBetween(zones, hole.zone, hole.point, home.zone, home.point, gaitFor(ex.id * 31 + 7));
+  const arrive = toFloor.reduce((a, l) => a + l.ms, 0);
+  const atHole = arrive + dashMs + 380;
+  return {
+    ex,
+    target: null,
+    out: [...legs, ...back],
+    back: [],
+    startAt: now,
+    outScale: 1,
+    backStart: Infinity,
+    swatted: { start: true, end: true },
+    say: [
+      { at: Math.max(0, arrive - 600), ms: 900, text: SAY.spotted },
+      { at: atHole + 300, ms: 1700, text: SAY.missed[ex.id % SAY.missed.length]! },
+    ],
+  };
+}
+
+/** A stroll home from wherever the cat is (a point on a level, see zoneUnder). */
+function walkHome(at: { zone: Element; point: PointRef }, now: number): Trip | null {
+  const home = placePoint('home');
+  if (!home) return null;
+  const zones = Array.from(document.querySelectorAll(ZONE_SEL));
+  const ex: Excursion = { id: strollId++, kind: 'wake', from: 'home', to: 'home', landAt: now, holdUntil: now };
+  const out = pathBetween(zones, at.zone, at.point, home.zone, home.point, gaitFor(ex.id));
+  return { ex, target: null, out, back: [], startAt: now, outScale: 1, backStart: Infinity, swatted: { start: true, end: true } };
+}
+
 export function WildCatOverlay() {
   const ref = useRef<HTMLCanvasElement>(null);
 
@@ -294,14 +396,40 @@ export function WildCatOverlay() {
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     const cat = new CatSim(11);
+    const player = new CatPlayer();
+    let lastFrame = performance.now();
+    /** Select held last frame (the nap toggles on the press) */
+    let padSleepHeld = false;
+    const mouse = new FloorMouse();
+    /** when the idle cat next fancies a go at the mouse */
+    let nextChaseAt = performance.now() + 30000 + Math.random() * 40000;
+    /** the cat's feet this frame (viewport), so the mouse knows to run (or that it is safe: asleep) */
+    let catAt: { x: number; y: number; asleep?: boolean } | null = null;
+    /** what the mouse just said, shown over its head */
+    let mouseSays: { text: string; until: number } | null = null;
     let trip: Trip | null = null;
     /** the cat is asleep on the windowsill (drawn by the pixel scene, not here) */
     let asleep = false;
+    /** where the cat is while it is out of the scope (moves with the page); null = at home in the scope */
+    let anchor: { zone: Element; point: PointRef } | null = null;
+    /** where the next trip starts: where the cat is right now */
+    const origin = (): { zone: Element; point: PointRef } | null =>
+      anchor ?? (asleep ? placePoint('window') : placePoint('home'));
+    /** the cat was drawn at viewport x, y this frame */
+    const at = (x: number, y: number): void => {
+      anchor = zoneUnder(x, y);
+      catAt = { x, y };
+    };
+    /** asleep on the spot (Z / Select): where, whether that is home in the scope, and whether you were steering it */
+    let sleepSpot: { zone: Element; point: PointRef } | null = null;
+    let sleepAtHome = false;
+    let sleptWhileSteering = false;
     let raf = 0;
 
     /** a trip ended at its destination */
     const arrive = (tr: Trip): void => {
       trip = null;
+      anchor = null;
       asleep = tr.ex.to === 'window';
       setCatNapping(asleep);
       setCatAway(asleep);
@@ -317,45 +445,172 @@ export function WildCatOverlay() {
     window.addEventListener('resize', resize);
 
     const unsub = onExcursion((ex) => {
+      if (player.active) return; // the player has the cat
+      if (trip?.target) stopWiggle(trip.target);
       if (ex) {
-        if (trip?.target) stopWiggle(trip.target);
-        trip = buildTrip(ex);
+        // off to the window: half the time to sit up on the crossbar, half to sleep on the sill
+        if (ex.to === 'window') setWindowSpot(Math.random() < 0.5 ? 'bar' : 'sill');
+        trip = buildTrip(ex, origin());
         if (trip) {
           // leaving the windowsill: the pixel scene stops drawing it
           asleep = false;
           setCatNapping(false);
         }
-      } else if (trip && !trip.fadeFrom) {
-        trip.fadeFrom = performance.now();
-        if (trip.target) stopWiggle(trip.target);
+      } else if (trip) {
+        // the job was called off: the cat walks home from where it is (it never just vanishes), unless it was
+        // called off because the cat is going to sleep right there
+        trip = anchor && !useStore.getState().catSleep ? walkHome(anchor, performance.now()) : null;
       }
     });
     const pending = currentExcursion();
-    if (pending) trip = buildTrip(pending);
+    if (pending) trip = buildTrip(pending, origin());
 
     const draw = (now: number) => {
       raf = requestAnimationFrame(draw);
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      const dt = Math.min(0.05, (now - lastFrame) / 1000);
+      lastFrame = now;
+
+      // ---- the mouse: always about on the floor, runs from any cat; now and then the idle cat goes after it
+      // settings turned up high shed crumbs that fall down the page to the mouse's floor
+      for (const c of shedCrumbs(now)) mouse.dropCrumb(c.x, c.y);
+      const mouseEvent = mouse.update(now, dt, catAt ? [catAt] : []);
+      if (mouseEvent?.mischief) mouseSays = { text: mouseMischief(), until: now + 1800 };
+      else if (mouseEvent?.say) mouseSays = { text: mouseEvent.say, until: now + 1600 };
+      catAt = null;
+      if (now >= nextChaseAt) {
+        nextChaseAt = now + 40000 + Math.random() * 60000;
+        const m = mouse.position();
+        if (m && !player.active && !trip && !asleep) {
+          trip = chaseTrip(m.x, now, origin());
+          if (trip) setCatAway(true);
+        }
+      }
+      mouse.draw(ctx, now);
+      if (mouseSays && now < mouseSays.until) {
+        const m = mouse.position();
+        // well clear of the mouse (and its hops): the box sits ~45 px above its feet
+        if (m) bubble(ctx, m.x, m.y - 10, mouseSays.text, Math.min(1, (mouseSays.until - now) / 300));
+      }
+
+      // ---- gamepad: any input takes the cat; Start / Select, or a few seconds without input, hands it back
+      const pad = readPad();
+      // Select toggles the nap (like Z), without picking the cat up
+      if (pad?.sleep && !padSleepHeld) {
+        const st = useStore.getState();
+        st.setCatSleep(!st.catSleep);
+      }
+      padSleepHeld = !!pad?.sleep;
+      // a sleeping cat is not picked up: only Select / Z wakes it
+      if (!player.active && pad?.any && !useStore.getState().catSleep) {
+        // the player picks the cat up exactly where it is: in the scope, on the sill, or out on a level
+        const o = origin();
+        const sp = o ? resolve(o.point) : { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+        if (trip?.target) stopWiggle(trip.target);
+        setPlayerControl(true);
+        trip = null;
+        asleep = false;
+        setCatNapping(false);
+        player.start(sp.x, sp.y, now);
+      }
+      const sleepy = useStore.getState().catSleep;
+      if (player.active && sleepy && player.grounded) {
+        // Select / Z while you steer: it curls up right here (once it has landed)
+        sleepSpot = anchor;
+        sleepAtHome = false;
+        sleptWhileSteering = true;
+        player.stop();
+        setPlayerControl(false);
+      }
+      if (player.active) {
+        // going to sleep mid-jump: no more steering, just land
+        const input = sleepy ? { x: 0, y: 0, turn: 0, jump: false, paw: false, home: false, sleep: false, any: true } : pad;
+        const f = input ? player.update(dt, input, now) : null;
+        if (!f) {
+          // back to its own life: stroll home from wherever it is
+          player.stop();
+          setPlayerControl(false);
+          trip = anchor ? walkHome(anchor, now) : null;
+          if (!trip) {
+            anchor = null;
+            setCatAway(false);
+          }
+          return;
+        }
+        setCatAway(true);
+        at(f.x, f.y);
+        ctx.save();
+        ctx.translate(f.x, f.y);
+        ctx.scale(CAT_SCALE, CAT_SCALE);
+        cat.drawPose(ctx, 0, 0, f.pose, f.facing, now / 1000, f.walk);
+        ctx.restore();
+        if (f.label) bubble(ctx, f.x, f.y, f.label, 1);
+        return;
+      }
+      // ---- asleep on the spot (Z / Select)
+      if (sleepy && !sleepSpot && !asleep) {
+        if (trip?.target) stopWiggle(trip.target);
+        trip = null;
+        sleepAtHome = !anchor;
+        sleepSpot = anchor ?? placePoint('home');
+        sleptWhileSteering = false;
+      }
+      if (sleepSpot && !sleepy) {
+        // woken: carry on steering if you were, otherwise its usual life from there
+        const spot = sleepSpot;
+        sleepSpot = null;
+        if (sleptWhileSteering && pad) {
+          const p = resolve(spot.point);
+          setPlayerControl(true);
+          player.start(p.x, p.y, now, SAY.yawn);
+        } else if (sleepAtHome) {
+          anchor = null;
+          setCatAway(false);
+        } else {
+          trip = walkHome(spot, now);
+        }
+        return;
+      }
+      if (sleepSpot) {
+        const s = resolve(sleepSpot.point);
+        setCatAway(true);
+        if (!sleepAtHome) at(s.x, s.y);
+        catAt = { x: s.x, y: s.y, asleep: true };
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.scale(CAT_SCALE, CAT_SCALE);
+        cat.drawPose(ctx, 0, 0, 'sleep', 1, now / 1000, 0);
+        ctx.restore();
+        // a z drifting up
+        const k = (now / 2200) % 1;
+        ctx.save();
+        ctx.globalAlpha = 0.85 * (1 - k);
+        ctx.fillStyle = '#e8dfc8';
+        ctx.font = '600 13px Caveat, "Comic Sans MS", cursive';
+        ctx.fillText('z', s.x + 12 + k * 10, s.y - 22 - k * 24);
+        ctx.restore();
+        return;
+      }
       if (!trip || now < trip.startAt) {
+        if (anchor) {
+          // out on a level, waiting to set off: sit there and watch
+          const w = resolve(anchor.point);
+          setCatAway(true);
+          ctx.save();
+          ctx.translate(w.x, w.y);
+          ctx.scale(CAT_SCALE, CAT_SCALE);
+          cat.drawPose(ctx, 0, 0, 'watch', 1, now / 1000, 0);
+          ctx.restore();
+          catAt = w;
+          return;
+        }
         setCatAway(asleep);
         return;
       }
       const tr = trip;
       const t = now / 1000;
-      let alpha = 1;
-      if (tr.fadeFrom) {
-        alpha = 1 - (now - tr.fadeFrom) / 300;
-        if (alpha <= 0) {
-          trip = null;
-          asleep = false;
-          setCatNapping(false);
-          setCatAway(false);
-          return;
-        }
-      }
       setCatAway(true);
       ctx.save();
-      ctx.globalAlpha = Math.max(0, alpha);
 
       let p: { x: number; y: number; pose: CatPose; facing: number; walk: number } | null = null;
       if (!tr.target) {
@@ -405,6 +660,7 @@ export function WildCatOverlay() {
         }
       }
       if (p) {
+        at(p.x, p.y);
         ctx.save();
         ctx.translate(p.x, p.y);
         ctx.scale(CAT_SCALE, CAT_SCALE);
@@ -412,7 +668,9 @@ export function WildCatOverlay() {
         ctx.restore();
         const sinceLand = now - tr.ex.landAt;
         const sinceEnd = now - tr.ex.holdUntil;
-        if (tr.ex.label && tr.target && sinceLand >= 0 && sinceLand < 1500) bubble(ctx, p.x, p.y, tr.ex.label, Math.min(1, (1500 - sinceLand) / 300));
+        const line = tr.say?.find((s) => now - tr.startAt >= s.at && now - tr.startAt < s.at + s.ms);
+        if (line) bubble(ctx, p.x, p.y, line.text, Math.min(1, (line.at + line.ms - (now - tr.startAt)) / 300));
+        else if (tr.ex.label && tr.target && sinceLand >= 0 && sinceLand < 1500) bubble(ctx, p.x, p.y, tr.ex.label, Math.min(1, (1500 - sinceLand) / 300));
         else if (tr.ex.endLabel && tr.target && sinceEnd >= 0 && sinceEnd < 1200) bubble(ctx, p.x, p.y, tr.ex.endLabel, Math.min(1, (1200 - sinceEnd) / 300));
       }
       ctx.restore();
@@ -421,6 +679,7 @@ export function WildCatOverlay() {
     return () => {
       cancelAnimationFrame(raf);
       unsub();
+      if (player.active) setPlayerControl(false);
       if (trip?.target) stopWiggle(trip.target);
       window.removeEventListener('resize', resize);
       setCatAway(false);

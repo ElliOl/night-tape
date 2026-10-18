@@ -39,6 +39,8 @@ export interface AppState {
   mod: ModOffsets;
   /** layers the wild cat has muted (not persisted; separate from the user's mutes) */
   catMuted: Partial<Record<LayerId, boolean>>;
+  /** Z / Select: the cat sleeps where it is until woken (not persisted) */
+  catSleep: boolean;
   muted: Partial<Record<LayerId, boolean>>;
   audioReady: boolean;
   playing: boolean;
@@ -57,6 +59,7 @@ export interface AppState {
   setMod(m: ModOffsets): void;
   setCatMuted(layer: LayerId, muted: boolean): void;
   clearCatMuted(): void;
+  setCatSleep(v: boolean): void;
   setMuted(layer: LayerId, muted: boolean): void;
   replaceAll(params: GenerationParams, mixer: MixerParams, tape: TapeParams, chaos?: ChaosParams, filterMode?: FilterMode): void;
   setAudioReady(v: boolean): void;
@@ -90,6 +93,7 @@ export const useStore = create<AppState>((set) => ({
   chaos: { ...DEFAULT_CHAOS },
   mod: {},
   catMuted: {},
+  catSleep: false,
   muted: {},
   audioReady: false,
   playing: false,
@@ -106,6 +110,7 @@ export const useStore = create<AppState>((set) => ({
   setMod: (mod) => set({ mod }),
   setCatMuted: (layer, muted) => set((s) => ({ catMuted: { ...s.catMuted, [layer]: muted } })),
   clearCatMuted: () => set({ catMuted: {} }),
+  setCatSleep: (catSleep) => set({ catSleep }),
   setMuted: (layer, muted) => set((s) => ({ muted: { ...s.muted, [layer]: muted } })),
   replaceAll: (params, mixer, tape, chaos, filterMode) =>
     set((s) => ({

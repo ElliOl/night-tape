@@ -228,6 +228,7 @@ export function ChaosPanel() {
                 {g.label}
               </button>
             ))}
+
           </div>
         </div>
       </div>
